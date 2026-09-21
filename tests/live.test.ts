@@ -83,7 +83,7 @@ function browserFixture(
     window: { isSecureContext: true },
     navigator: { mediaDevices: { getUserMedia: () => microphone } },
     RTCPeerConnection: Peer,
-    localStorage: { getItem: () => JSON.stringify({ summary: savedMemory }), setItem: () => {}, removeItem: () => {} },
+    localStorage: { getItem: (key: string) => key === 'conversation.memory.v1' ? JSON.stringify({ summary: savedMemory }) : null, setItem: () => {}, removeItem: () => {} },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });

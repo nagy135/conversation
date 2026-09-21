@@ -1,24 +1,34 @@
-const KEY = 'conversation.memory.v1';
-interface Saved { summary: string; }
+import { applyMemoryPatch, validMemories, type MemoryChange } from '../../server/memory-data.ts';
+
+const KEY = 'conversation.memory.v2';
+const LEGACY_KEY = 'conversation.memory.v1';
+interface Saved { memories: string[]; }
 class MemoryRequestError extends Error {}
 
-export interface MemorySnapshot extends Saved { revision: number; pending: string; busy: boolean; error: string | null; }
+export interface MemorySnapshot extends Saved { revision: number; changes: MemoryChange[]; pending: string; busy: boolean; error: string | null; }
 
 /** Browser-owned volatile transcript buffer; one summary request at a time, independent of voice. */
 export class ConversationMemory {
-  private state: MemorySnapshot = { summary: '', revision: 0, pending: '', busy: false, error: null };
+  private state: MemorySnapshot = { memories: [], changes: [], revision: 0, pending: '', busy: false, error: null };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
   constructor(private storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, private requestFetch: typeof fetch = (...args) => fetch(...args)) {
     try {
       this.storage ??= globalThis.localStorage;
-      const saved = JSON.parse(this.storage?.getItem(KEY) || 'null');
-      if (saved && typeof saved.summary === 'string' && saved.summary.length <= 8000) {
-        this.state = { ...this.state, summary: saved.summary };
+      const stored = this.storage?.getItem(KEY);
+      if (stored) {
+        const saved = JSON.parse(stored);
+        if (validMemories(saved?.memories)) this.state = { ...this.state, memories: saved.memories };
+      } else {
+        const legacy = JSON.parse(this.storage?.getItem(LEGACY_KEY) || 'null');
+        if (typeof legacy?.summary === 'string' && legacy.summary.trim() && legacy.summary !== 'No lasting details yet.' && validMemories([legacy.summary])) {
+          this.state = { ...this.state, memories: [legacy.summary] };
+        }
+        if (legacy !== null) this.storage?.setItem(KEY, JSON.stringify({ memories: this.state.memories }));
       }
-      // Migrate v1: discard previously persisted raw conversations, even with an invalid summary.
-      if (saved !== null) this.storage?.setItem(KEY, JSON.stringify({ summary: this.state.summary }));
+      // Keep the existing summary as an entry; never migrate raw transcripts.
+      this.storage?.removeItem(LEGACY_KEY);
     } catch { this.state.error = 'Browser memory could not be loaded.'; }
   }
   getSnapshot = () => this.state;
@@ -28,7 +38,7 @@ export class ConversationMemory {
     if (save) {
       try {
         if (!this.storage) throw new Error('Storage unavailable');
-        this.storage.setItem(KEY, JSON.stringify({ summary: this.state.summary }));
+        this.storage.setItem(KEY, JSON.stringify({ memories: this.state.memories }));
       } catch { this.state.error = 'Memory cannot be saved in this browser.'; }
     }
     this.listeners.forEach(listener => listener());
@@ -45,7 +55,7 @@ export class ConversationMemory {
     }
   }
   context() {
-    return this.state.summary;
+    return this.state.memories.join('\n');
   }
   summarize = async () => {
     if (this.request || !this.state.pending.length) return;
@@ -55,11 +65,11 @@ export class ConversationMemory {
     this.request = controller;
     // Snapshot only unsummarized fragments. New arrivals remain in the next batch.
     const batch = this.state.pending.slice(0, 24000);
-    this.update({ busy: true, error: null });
+    this.update({ busy: true, error: null, changes: [] });
     try {
       const response = await this.requestFetch('/api/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary: this.state.summary, transcript: batch }),
+        body: JSON.stringify({ memories: this.state.memories, transcript: batch }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90000)]),
       });
       if (!response.ok) {
@@ -69,9 +79,11 @@ export class ConversationMemory {
         throw new MemoryRequestError(detail);
       }
       const result = await response.json();
-      if (typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 8000) throw new Error('Invalid summary');
       if (this.request !== controller) return;
-      this.update({ revision: this.state.revision + 1, summary: result.summary, pending: this.state.pending.slice(batch.length) }, true);
+      const { memories, changes } = applyMemoryPatch(this.state.memories, result.patch);
+      const changed = JSON.stringify(memories) !== JSON.stringify(this.state.memories);
+      // No-op still consumes the reviewed buffer, without a write or notification.
+      this.update({ memories, changes, revision: this.state.revision + (changes.length ? 1 : 0), pending: this.state.pending.slice(batch.length) }, changed);
     } catch (error) {
       if (this.request === controller) this.update({ error: error instanceof MemoryRequestError
         ? error.message
@@ -86,7 +98,7 @@ export class ConversationMemory {
   };
   clear = () => {
     this.pause();
-    this.update({ summary: '', revision: 0, pending: '', busy: false, error: null }, true);
+    this.update({ memories: [], changes: [], revision: 0, pending: '', busy: false, error: null }, true);
   };
   pause = () => {
     if (this.timer) clearTimeout(this.timer);

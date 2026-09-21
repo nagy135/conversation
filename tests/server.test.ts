@@ -61,27 +61,32 @@ test('missing configuration is visible without leaking environment values', asyn
 test('memory proxy validates requests, uses Terra, and rejects incomplete summaries', async t => {
   const requests: RequestInit[] = [];
   let incomplete = false;
+  let patch = { add: ['Likes tea.'], update: [] as { index: number; text: string }[], remove: [] as number[] };
   const upstreamFetch = (async (url: unknown, init: RequestInit) => {
     assert.equal(url, 'https://api.openai.com/v1/responses');
     requests.push(init);
-    return Response.json({ status: incomplete ? 'incomplete' : 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Likes tea.' }] }] });
+    return Response.json({ status: incomplete ? 'incomplete' : 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(patch) }] }] });
   }) as typeof fetch;
   const server = createApp({ apiKey: 'private-test-key', origin, upstreamFetch }).listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(() => server.close());
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/memory`;
   const send = (body: unknown, requestOrigin = origin) => fetch(url, { method: 'POST', headers: { Origin: requestOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const valid = { summary: '', transcript: 'user: I like tea.' };
+  const valid = { memories: [], transcript: 'user: I like tea.' };
   assert.equal((await send(valid, 'https://evil.example')).status, 403);
-  assert.equal((await send({ ...valid, summary: 'x'.repeat(8001) })).status, 400);
+  assert.equal((await send({ ...valid, memories: ['x'.repeat(8001)] })).status, 400);
   assert.equal((await send({ ...valid, transcript: 'x'.repeat(24001) })).status, 400);
   assert.equal(requests.length, 0);
   const response = await send(valid);
-  assert.deepEqual(await response.json(), { summary: 'Likes tea.' });
+  assert.deepEqual(await response.json(), { patch: { add: ['Likes tea.'], update: [], remove: [] } });
   const config = JSON.parse(requests[0].body as string);
   assert.equal(config.model, 'gpt-5.6-terra');
   assert.equal(config.store, false);
   assert.deepEqual(JSON.parse(config.input), valid);
+  patch = { add: [], update: [], remove: [] };
+  assert.deepEqual(await (await send(valid)).json(), { patch });
+  patch = { add: [], update: [{ index: 8, text: 'Invalid update' }], remove: [] };
+  assert.equal((await send(valid)).status, 502);
   incomplete = true;
   assert.equal((await send(valid)).status, 502);
 });

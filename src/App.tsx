@@ -97,12 +97,12 @@ export default function App() {
       </View>
       <View style={styles.memoryArea}>
         <Pressable accessibilityRole="button" onPress={() => setShowMemory(!showMemory)}>
-          <Text style={styles.soundText}>{memory.busy ? 'Updating memory…' : 'Memory'}{memory.pending.length ? ' · pending' : ''}</Text>
+          <Text style={styles.soundText}>{memory.busy ? 'Reviewing memory…' : 'Memory'}{memory.pending.length ? ' · pending' : ''}</Text>
         </Pressable>
         {showMemory && <View style={styles.memoryDetails}>
-          <Text style={styles.placeholder}>Only the summary is saved in this browser. Terra updates it in the background.</Text>
-          <ScrollView style={{ maxHeight: 160 }}><Text style={styles.transcriptText}>{memory.summary || 'No summary yet.'}</Text></ScrollView>
-          {memory.pending.length > 0 && <Text style={styles.placeholder}>New conversation is buffered temporarily. Closing or reloading this page discards anything not yet summarized.</Text>}
+          <Text style={styles.placeholder}>Distinct memories saved in this browser. Only useful new details are remembered.</Text>
+          <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
+          {memory.pending.length > 0 && <Text style={styles.placeholder}>New conversation is buffered temporarily. Closing or reloading this page discards anything not yet reviewed.</Text>}
           {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
           <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Stop conversation to clear memory'}</Text></Pressable>
