@@ -26,6 +26,10 @@ export class LiveClient {
   private sequence = 0;
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
+  constructor() {
+    this.memory.recoverTopics(this.snapshot.transcript);
+  }
+
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);

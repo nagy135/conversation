@@ -158,6 +158,28 @@ test('restored pending speech is automatically reviewed after resume', async t =
   assert.equal(new ConversationMemory(disk).getSnapshot().pending, '');
 });
 
+test('topic policy upgrade re-reviews saved conversation once without losing pending speech', async t => {
+  const disk = storage();
+  disk.setItem('conversation.memory.v2', JSON.stringify({ memories: ['Speaks Slovak.'], pending: 'user: A new question\n' }));
+  const history = [{ role: 'user' as const, text: 'What events are on in Bratislava?' }];
+  const memory = new ConversationMemory(disk, (async (_url, init) => {
+    const input = JSON.parse(init!.body as string);
+    assert.deepEqual(input.memories, ['Speaks Slovak.']);
+    assert.equal(input.transcript, 'user: What events are on in Bratislava?\nuser: A new question\n');
+    return Response.json({ patch: { add: ['Recently explored events in Bratislava.'], update: [], remove: [] } });
+  }) as typeof fetch);
+  t.after(memory.pause);
+  memory.recoverTopics(history);
+  const reloaded = new ConversationMemory(disk);
+  reloaded.recoverTopics(history);
+  assert.equal(reloaded.getSnapshot().pending, memory.getSnapshot().pending);
+  await memory.summarize();
+  const reviewed = new ConversationMemory(disk);
+  reviewed.recoverTopics(history);
+  assert.equal(reviewed.getSnapshot().pending, '');
+  assert.deepEqual(reviewed.getSnapshot().memories, ['Speaks Slovak.', 'Recently explored events in Bratislava.']);
+});
+
 test('duplicate additions are silent; corrections and forgetting affect only targeted entries', async t => {
   const disk = storage();
   disk.setItem('conversation.memory.v2', JSON.stringify({ memories: ['Likes tea.', 'Speaks Slovak.', 'Lives in Prague.'] }));

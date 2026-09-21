@@ -2,14 +2,15 @@ import { applyMemoryPatch, validMemories, type MemoryChange } from '../../server
 
 const KEY = 'conversation.memory.v2';
 const LEGACY_KEY = 'conversation.memory.v1';
-interface Saved { memories: string[]; pending: string; lastReview: { at: string; changes: number } | null; }
+const REVIEW_POLICY_VERSION = 1;
+interface Saved { memories: string[]; pending: string; lastReview: { at: string; changes: number } | null; reviewPolicyVersion: number; }
 class MemoryRequestError extends Error {}
 
 export interface MemorySnapshot extends Saved { revision: number; changes: MemoryChange[]; busy: boolean; error: string | null; }
 
 /** Durable review queue; one summary request at a time, independent of voice. */
 export class ConversationMemory {
-  private state: MemorySnapshot = { memories: [], changes: [], revision: 0, pending: '', lastReview: null, busy: false, error: null };
+  private state: MemorySnapshot = { memories: [], changes: [], revision: 0, pending: '', lastReview: null, reviewPolicyVersion: 0, busy: false, error: null };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
@@ -22,6 +23,7 @@ export class ConversationMemory {
         if (validMemories(saved?.memories)) this.state = {
           ...this.state, memories: saved.memories,
           pending: typeof saved.pending === 'string' ? saved.pending : '',
+          reviewPolicyVersion: saved.reviewPolicyVersion === REVIEW_POLICY_VERSION ? REVIEW_POLICY_VERSION : 0,
           lastReview: typeof saved.lastReview?.at === 'string' && Number.isFinite(Date.parse(saved.lastReview.at))
             && Number.isInteger(saved.lastReview.changes) && saved.lastReview.changes >= 0 ? saved.lastReview : null,
         };
@@ -44,7 +46,7 @@ export class ConversationMemory {
       try {
         if (!this.storage) throw new Error('Storage unavailable');
         // Commit the patch and consumed queue together so reload cannot lose unreviewed speech.
-        this.storage.setItem(KEY, JSON.stringify({ memories: this.state.memories, pending: this.state.pending, lastReview: this.state.lastReview }));
+        this.storage.setItem(KEY, JSON.stringify({ memories: this.state.memories, pending: this.state.pending, lastReview: this.state.lastReview, reviewPolicyVersion: this.state.reviewPolicyVersion }));
       } catch { this.state.error = 'Memory cannot be saved in this browser.'; }
     }
     this.listeners.forEach(listener => listener());
@@ -53,6 +55,12 @@ export class ConversationMemory {
     if (!text) return;
     this.update({ pending: this.state.pending + `${role}: ${text}\n` }, true);
     this.schedule();
+  }
+  /** Once per policy upgrade, recover topics that the earlier reviewer deliberately skipped. */
+  recoverTopics(transcript: { role: 'user' | 'assistant'; text: string }[]) {
+    if (this.state.reviewPolicyVersion === REVIEW_POLICY_VERSION) return;
+    const history = transcript.map(entry => `${entry.role}: ${entry.text}\n`).join('');
+    this.update({ pending: history + this.state.pending, reviewPolicyVersion: REVIEW_POLICY_VERSION }, true);
   }
   resume = () => { this.schedule(); };
   private schedule() {
@@ -104,7 +112,7 @@ export class ConversationMemory {
   };
   clear = () => {
     this.pause();
-    this.update({ memories: [], changes: [], revision: 0, pending: '', lastReview: null, busy: false, error: null }, true);
+    this.update({ memories: [], changes: [], revision: 0, pending: '', lastReview: null, reviewPolicyVersion: REVIEW_POLICY_VERSION, busy: false, error: null }, true);
   };
   pause = () => {
     if (this.timer) clearTimeout(this.timer);
