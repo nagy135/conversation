@@ -1,6 +1,6 @@
 # Conversation
 
-A minimal React Native Web voice app: one large pause/resume button and a small, live transcript. Built from the GPT-Live connection in `agentic_speech_demo`, with a general conversation prompt and no instrument catalogue or settings panels.
+A minimal React Native Web voice app: an animated humanoid companion, a pause/resume button, and a small, live transcript. The face blinks while connected and animates its mouth and head while the existing remote-audio detector reports speech. Pausing or blocked playback stops the talking animation; reduced-motion preferences disable movement. This is a speech activity animation, not phoneme-level lip sync. Built from the GPT-Live connection in `agentic_speech_demo`, with a general conversation prompt and no instrument catalogue or settings panels.
 
 The UI uses React Native primitives through React Native Web. This repository ships the browser application; it does not include iOS/Android binaries. The WebRTC transport is browser-specific.
 

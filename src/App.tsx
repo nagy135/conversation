@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentRef } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MemoryToast } from './components/MemoryToast';
+import { TalkingFace } from './components/TalkingFace';
 import { LiveClient } from './live/client';
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
       </View>
       <View style={styles.main}>
         <View style={styles.stage}>
+          <TalkingFace active={active} speaking={active && state.speaking && !state.audioBlocked} />
           <Pressable
             testID="play-button"
             accessibilityRole="button"
@@ -147,16 +149,16 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingTop: 32 },
   wordmarkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#bd533a' },
   wordmark: { fontSize: 16, letterSpacing: -0.5, color: '#383b32', fontWeight: '500' },
-  main: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 55 },
+  main: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 28 },
   stage: { alignItems: 'center', width: '100%', maxWidth: 480 },
-  play: { width: 190, height: 190, borderRadius: 95, backgroundColor: '#bd533a', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 35px rgba(132, 62, 39, 0.12)' },
+  play: { width: 68, height: 68, borderRadius: 34, marginTop: 18, backgroundColor: '#bd533a', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(132, 62, 39, 0.12)' },
   playActive: { backgroundColor: '#384c40' },
   speaking: { boxShadow: '0 0 0 12px rgba(56, 76, 64, 0.08), 0 0 0 25px rgba(56, 76, 64, 0.035)' },
   pressed: { transform: [{ scale: 0.96 }] },
-  playIcon: { width: 0, height: 0, marginLeft: 10, borderTopWidth: 23, borderBottomWidth: 23, borderLeftWidth: 35, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#fffaf3' },
-  pauseIcon: { flexDirection: 'row', gap: 12 },
-  pauseBar: { width: 12, height: 40, borderRadius: 3, backgroundColor: '#fffaf3' },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 32, minHeight: 22 },
+  playIcon: { width: 0, height: 0, marginLeft: 5, borderTopWidth: 11, borderBottomWidth: 11, borderLeftWidth: 17, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#fffaf3' },
+  pauseIcon: { flexDirection: 'row', gap: 7 },
+  pauseBar: { width: 6, height: 22, borderRadius: 2, backgroundColor: '#fffaf3' },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 22, minHeight: 22 },
   statusText: { color: '#50534a', fontSize: 14, letterSpacing: 0.1 },
   statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#748672' },
   statusSpeaking: { backgroundColor: '#bd533a' },

@@ -4,6 +4,29 @@ body { -webkit-font-smoothing: antialiased; }
 button { -webkit-tap-highlight-color: transparent; }
 [role="button"]:focus-visible { outline: 3px solid #292a25; outline-offset: 8px; }
 ::selection { background: #ead2c5; }
+.talking-face { width: min(260px, 68vw); flex-shrink: 0; }
+.talking-face svg { display: block; width: 100%; overflow: visible; }
+.talking-face:not(.is-active) { opacity: .72; }
+.face-head { transform-origin: 140px 205px; }
+.face-eyes { transform-origin: 140px 129px; }
+.face-mouth { opacity: 0; transform-origin: 140px 168px; }
+.is-speaking .face-mouth { opacity: 1; }
+.is-speaking .face-smile { opacity: 0; }
 @media (prefers-reduced-motion: no-preference) {
   [data-testid="play-button"] { transition: transform 180ms ease, background-color 180ms ease, box-shadow 250ms ease; }
+  .talking-face { transition: opacity 250ms ease; }
+  .is-active .face-eyes { animation: face-blink 5.7s infinite; }
+  .is-speaking .face-mouth { animation: face-talk 430ms infinite; }
+  .is-speaking .face-head { animation: face-nod 2.3s ease-in-out infinite; }
+  .is-speaking .face-halo { animation: face-glow 1.8s ease-in-out infinite; }
 }
+@keyframes face-talk {
+  0%, 100% { transform: scale(.85, .35); }
+  22% { transform: scale(1, .95); }
+  46% { transform: scale(.9, .45); }
+  70% { transform: scale(.75, 1.15); }
+  86% { transform: scale(1, .6); }
+}
+@keyframes face-blink { 0%, 42%, 46%, 100% { transform: scaleY(1); } 44% { transform: scaleY(.1); } }
+@keyframes face-nod { 0%, 100% { transform: rotate(-1deg); } 50% { transform: rotate(1.2deg) translateY(1px); } }
+@keyframes face-glow { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
