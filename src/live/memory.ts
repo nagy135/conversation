@@ -1,11 +1,11 @@
 const KEY = 'conversation.memory.v1';
 interface Saved { summary: string; }
 
-export interface MemorySnapshot extends Saved { pending: string; busy: boolean; error: string | null; }
+export interface MemorySnapshot extends Saved { revision: number; pending: string; busy: boolean; error: string | null; }
 
 /** Browser-owned volatile transcript buffer; one summary request at a time, independent of voice. */
 export class ConversationMemory {
-  private state: MemorySnapshot = { summary: '', pending: '', busy: false, error: null };
+  private state: MemorySnapshot = { summary: '', revision: 0, pending: '', busy: false, error: null };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
@@ -65,7 +65,7 @@ export class ConversationMemory {
       const result = await response.json();
       if (typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 8000) throw new Error('Invalid summary');
       if (this.request !== controller) return;
-      this.update({ summary: result.summary, pending: this.state.pending.slice(batch.length) }, true);
+      this.update({ revision: this.state.revision + 1, summary: result.summary, pending: this.state.pending.slice(batch.length) }, true);
     } catch {
       if (this.request === controller) this.update({ error: 'Memory summary failed. The temporary buffer will retry while this page stays open.' });
     } finally {
@@ -78,7 +78,7 @@ export class ConversationMemory {
   };
   clear = () => {
     this.pause();
-    this.update({ summary: '', pending: '', busy: false, error: null }, true);
+    this.update({ summary: '', revision: 0, pending: '', busy: false, error: null }, true);
   };
   pause = () => {
     if (this.timer) clearTimeout(this.timer);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentRef } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { MemoryToast } from './components/MemoryToast';
 import { LiveClient } from './live/client';
 
 export default function App() {
@@ -108,6 +109,7 @@ export default function App() {
         </View>}
       </View>
       <Text style={styles.footer}>Just your voice. An AI listening.</Text>
+      <MemoryToast memory={client.memory} />
     </View>
   );
 }
