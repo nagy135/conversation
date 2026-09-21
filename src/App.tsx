@@ -7,6 +7,8 @@ export default function App() {
   const audio = useRef<HTMLAudioElement | null>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView> | null>(null);
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
+  const memory = useSyncExternalStore(client.memory.subscribe, client.memory.getSnapshot, client.memory.getSnapshot);
+  const [showMemory, setShowMemory] = useState(false);
   const active = state.status === 'connected';
   const busy = state.status === 'connecting' || state.status === 'closing';
   useEffect(() => {
@@ -14,6 +16,7 @@ export default function App() {
     element.autoplay = true;
     element.setAttribute('playsinline', '');
     audio.current = element;
+    client.memory.resume();
     const leave = () => client.dispose();
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); client.dispose(); audio.current = null; };
@@ -91,6 +94,19 @@ export default function App() {
           </View>
         </View>
       </View>
+      <View style={styles.memoryArea}>
+        <Pressable accessibilityRole="button" onPress={() => setShowMemory(!showMemory)}>
+          <Text style={styles.soundText}>{memory.busy ? 'Updating memory…' : 'Memory'}{memory.pending.length ? ' · pending' : ''}</Text>
+        </Pressable>
+        {showMemory && <View style={styles.memoryDetails}>
+          <Text style={styles.placeholder}>Saved in this browser. Summarized in the background with Terra.</Text>
+          <ScrollView style={{ maxHeight: 160 }}><Text style={styles.transcriptText}>{memory.summary || 'No summary yet.'}</Text></ScrollView>
+          {memory.pending.length > 0 && <Text style={styles.placeholder}>Recent conversation is saved and waiting to be summarized.</Text>}
+          {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
+          {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
+          <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Stop conversation to clear memory'}</Text></Pressable>
+        </View>}
+      </View>
       <Text style={styles.footer}>Just your voice. An AI listening.</Text>
     </View>
   );
@@ -127,5 +143,7 @@ const styles = StyleSheet.create({
   sources: { gap: 8, paddingLeft: 42 },
   sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
   sourceLink: { color: '#4b5548', fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
+  memoryArea: { alignItems: 'center', paddingBottom: 20, gap: 12 },
+  memoryDetails: { width: '100%', maxWidth: 480, gap: 14 },
   footer: { fontSize: 11, color: '#94968b', letterSpacing: 0.4, textAlign: 'center', paddingBottom: 25 },
 });

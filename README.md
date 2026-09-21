@@ -15,7 +15,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Open http://localhost:5173. Allow microphone access and press play. Press the same button to stop. The transcript remains until the next conversation and is not persisted.
+Open http://localhost:5173. Allow microphone access and press play. Press the same button to stop. The visible transcript remains until the next conversation. Memory and pending conversation text are saved in this browser’s localStorage and carried into new sessions. While the page is open, the browser asynchronously asks `gpt-5.6-terra` to summarize memory every 30 seconds when there is new text, and when a session ends. Voice never waits for summarization. Pending work survives reloads; failures retain it for retry. Open **Memory** to view the summary, update it, or clear it after stopping. Memory is specific to this browser profile and origin; use one tab for conversations (concurrent tabs do not merge memory). Clearing browser site data also removes it. If browser storage is unavailable, memory only lasts for this page and the Memory panel shows a warning.
 
 ```sh
 npm test
@@ -25,7 +25,7 @@ PUBLIC_ORIGIN=http://localhost:3000 npm start
 
 ## Voice connection
 
-The Express server validates the origin and SDP offer, then creates a `gpt-live-1` session with the `marin` voice and `gpt-5.6-terra` Responses delegation. The backend has hosted `web_search` access for current information and public webpages. Opening-hours requests check the exact branch, date, and local timezone, preferring official sources. Citation links appear under the transcript. The API key stays on the server. Audio travels directly over WebRTC; timestamped events update each speaker's transcript independently. The greeting waits for session readiness and its instruction acknowledgement. Stop silences audio immediately, requests session closure, and releases browser resources.
+The Express server validates the origin and SDP offer, then creates a `gpt-live-1` session with the `marin` voice and `gpt-5.6-terra` Responses delegation. The backend has hosted `web_search` access for current information and public webpages. Opening-hours requests check the exact branch, date, and local timezone, preferring official sources. Citation links appear under the transcript. The API key stays on the server. `/api/memory` proxies bounded, origin-checked summary requests through the [Responses API](https://developers.openai.com/api/reference/responses/create) with `store: false`; the app server does not persist memory. Audio travels directly over WebRTC; timestamped events update each speaker's transcript independently. The greeting waits for session readiness and its instruction acknowledgement. Stop silences audio immediately, requests session closure, and releases browser resources.
 
 Based on the official [WebRTC guide](https://developers.openai.com/api/docs/guides/voice-webrtc?api=live) and [session lifecycle guide](https://developers.openai.com/api/docs/guides/live-conversations).
 

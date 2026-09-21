@@ -1,4 +1,5 @@
 import express from 'express';
+import { memoryRouter } from './memory.ts';
 import { fileURLToPath } from 'node:url';
 import { createSessionConfig } from './session.ts';
 import { readSessionError } from './session-error.ts';
@@ -73,10 +74,11 @@ export function createApp({
       res.off('close', disconnected);
     }
   });
+  app.use('/api', memoryRouter(apiKey, origin, upstreamFetch));
   app.use('/api', (_req, res) => { res.status(404).json({ error: 'Not found' }); });
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url)), { dotfiles: 'deny' }));
   app.use((error: { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(error.status === 413 ? 413 : 500).json({ error: error.status === 413 ? 'Audio connection offer is too large.' : 'Something went wrong. Please try again.' });
+    res.status(error.status === 413 ? 413 : error.status === 400 ? 400 : 500).json({ error: error.status === 413 ? 'Request is too large.' : error.status === 400 ? 'Invalid request.' : 'Something went wrong. Please try again.' });
   });
   return app;
 }
