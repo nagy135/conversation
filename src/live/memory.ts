@@ -1,5 +1,6 @@
 const KEY = 'conversation.memory.v1';
 interface Saved { summary: string; }
+class MemoryRequestError extends Error {}
 
 export interface MemorySnapshot extends Saved { revision: number; pending: string; busy: boolean; error: string | null; }
 
@@ -9,7 +10,7 @@ export class ConversationMemory {
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
-  constructor(private storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, private requestFetch: typeof fetch = fetch) {
+  constructor(private storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, private requestFetch: typeof fetch = (...args) => fetch(...args)) {
     try {
       this.storage ??= globalThis.localStorage;
       const saved = JSON.parse(this.storage?.getItem(KEY) || 'null');
@@ -61,13 +62,20 @@ export class ConversationMemory {
         body: JSON.stringify({ summary: this.state.summary, transcript: batch }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90000)]),
       });
-      if (!response.ok) throw new Error('Summary failed');
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        const detail = typeof failure?.error === 'string' && failure.error.length <= 500
+          ? failure.error : `Memory request failed (HTTP ${response.status}).`;
+        throw new MemoryRequestError(detail);
+      }
       const result = await response.json();
       if (typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 8000) throw new Error('Invalid summary');
       if (this.request !== controller) return;
       this.update({ revision: this.state.revision + 1, summary: result.summary, pending: this.state.pending.slice(batch.length) }, true);
-    } catch {
-      if (this.request === controller) this.update({ error: 'Memory summary failed. The temporary buffer will retry while this page stays open.' });
+    } catch (error) {
+      if (this.request === controller) this.update({ error: error instanceof MemoryRequestError
+        ? error.message
+        : 'Could not complete the memory request. Keep this page open to retry.' });
     } finally {
       if (this.request === controller) {
         this.request = null;

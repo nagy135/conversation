@@ -71,9 +71,9 @@ export function MemoryToast({ memory }: { memory: ConversationMemory }) {
         {expanded && <View style={styles.details}>
           {notice.phase === 'saving' && <Text style={styles.caption}>Adding our recent conversation. {notice.summary ? 'Previous memory below.' : ''}</Text>}
           {notice.error && <Text accessibilityRole="alert" style={styles.error}>{notice.error}</Text>}
-          <ScrollView style={styles.scroll} accessibilityLabel="Summarized memory">
+          {(notice.summary || !notice.error) && <ScrollView style={styles.scroll} accessibilityLabel="Summarized memory">
             <Text selectable style={styles.summary}>{notice.summary || 'Your summary will appear here when it is ready.'}</Text>
-          </ScrollView>
+          </ScrollView>}
         </View>}
       </View>
     </View>

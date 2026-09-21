@@ -69,3 +69,26 @@ test('failure keeps queued memory and successful retry compacts it', async t => 
   assert.equal(memory.getSnapshot().pending.length, 0);
   assert.equal(memory.context(), 'Likes tea.');
 });
+
+test('default browser fetch is called without the memory object as its receiver', async t => {
+  t.mock.method(globalThis, 'fetch', async function (this: unknown) {
+    if (this instanceof ConversationMemory) throw new TypeError('Illegal invocation');
+    return Response.json({ summary: 'Likes tea.' });
+  });
+  const memory = new ConversationMemory(storage());
+  t.after(memory.pause);
+  memory.record('user', 'I like tea.');
+  await memory.summarize();
+  assert.equal(memory.getSnapshot().error, null);
+  assert.equal(memory.context(), 'Likes tea.');
+  assert.equal(memory.getSnapshot().pending, '');
+});
+
+test('memory request failures show server guidance and retain the buffer', async t => {
+  const memory = new ConversationMemory(storage(), (async () => Response.json({ error: 'Memory is busy. Try again in a minute.' }, { status: 429 })) as typeof fetch);
+  t.after(memory.pause);
+  memory.record('user', 'I like tea.');
+  await memory.summarize();
+  assert.equal(memory.getSnapshot().error, 'Memory is busy. Try again in a minute.');
+  assert.match(memory.getSnapshot().pending, /I like tea/);
+});
