@@ -129,7 +129,8 @@ export default function App() {
         {showMemory && <View style={styles.memoryDetails}>
           <Text style={styles.placeholder}>Distinct memories saved in this browser. Only useful new details are remembered.</Text>
           <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
-          {memory.pending.length > 0 && <Text style={styles.placeholder}>Memory review is pending. The current transcript is saved separately so you can continue after reloading.</Text>}
+          {memory.pending.length > 0 && <Text style={styles.placeholder}>New speech is saved for memory review, including after reloading.</Text>}
+          {memory.lastReview && <Text style={styles.placeholder}>Last reviewed at {new Date(memory.lastReview.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. {memory.lastReview.changes ? `${memory.lastReview.changes} ${memory.lastReview.changes === 1 ? 'memory change' : 'memory changes'}.` : 'No new memories needed.'}</Text>}
           {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
           <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Pause conversation to clear memory'}</Text></Pressable>

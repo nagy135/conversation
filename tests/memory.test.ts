@@ -7,7 +7,7 @@ function storage() {
   const values = new Map<string, string>();
   return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
 }
-test('only memory entries persist and each run consumes only its captured buffer', async t => {
+test('pending speech survives reload and each run consumes only its captured buffer', async t => {
   const disk = storage();
   const requests: { memories: string[]; transcript: string }[] = [];
   let resolve!: (response: Response) => void;
@@ -17,14 +17,15 @@ test('only memory entries persist and each run consumes only its captured buffer
   }) as typeof fetch);
   t.after(memory.pause);
   memory.record('user', 'I like tea.');
-  assert.equal(disk.getItem('conversation.memory.v2'), null);
+  assert.equal(new ConversationMemory(disk).getSnapshot().pending, 'user: I like tea.\n');
   assert.equal(new ConversationMemory(disk).context(), '');
   const work = memory.summarize();
   memory.record('user', 'My name is Alex.');
   resolve(Response.json({ patch: { add: ['Likes tea.'], update: [], remove: [] } }));
   await work;
   assert.equal(memory.getSnapshot().pending, 'user: My name is Alex.\n');
-  assert.deepEqual(JSON.parse(disk.getItem('conversation.memory.v2')!), { memories: ['Likes tea.'] });
+  assert.deepEqual(JSON.parse(disk.getItem('conversation.memory.v2')!).memories, ['Likes tea.']);
+  assert.equal(new ConversationMemory(disk).getSnapshot().pending, 'user: My name is Alex.\n');
   assert.equal(new ConversationMemory(disk).context(), 'Likes tea.');
   const next = memory.summarize();
   assert.deepEqual(requests[1], { memories: ['Likes tea.'], transcript: 'user: My name is Alex.\n' });
@@ -32,6 +33,7 @@ test('only memory entries persist and each run consumes only its captured buffer
   await next;
   assert.equal(memory.getSnapshot().pending, '');
   assert.equal(memory.context(), 'Alex likes tea.');
+  assert.equal(new ConversationMemory(disk).getSnapshot().pending, '');
 });
 
 test('migration removes old raw conversation storage while preserving summary', () => {
@@ -95,10 +97,9 @@ test('memory request failures show server guidance and retain the buffer', async
 });
 
 
-test('no-op consumes the buffer without persisting or generating a notification', async t => {
+test('no-op durably consumes the buffer and records review status without a notification', async t => {
   const disk = storage();
   disk.setItem('conversation.memory.v2', JSON.stringify({ memories: ['Likes tea.'] }));
-  const writes = t.mock.method(disk, 'setItem');
   const memory = new ConversationMemory(disk, (async () => Response.json({ patch: { add: [], update: [], remove: [] } })) as typeof fetch);
   t.after(memory.pause);
   memory.record('user', 'Okay, thanks.');
@@ -107,7 +108,54 @@ test('no-op consumes the buffer without persisting or generating a notification'
   assert.equal(memory.getSnapshot().revision, 0);
   assert.deepEqual(memory.getSnapshot().changes, []);
   assert.deepEqual(memory.getSnapshot().memories, ['Likes tea.']);
-  assert.equal(writes.mock.callCount(), 0);
+  const restored = new ConversationMemory(disk).getSnapshot();
+  assert.equal(restored.pending, '');
+  assert.equal(restored.lastReview?.changes, 0);
+  assert.ok(restored.lastReview?.at);
+  assert.deepEqual(restored.memories, ['Likes tea.']);
+});
+
+test('reload during a review retains its batch and later speech for retry', async t => {
+  const disk = storage();
+  let resolve!: (response: Response) => void;
+  const memory = new ConversationMemory(disk, (() => new Promise<Response>(r => { resolve = r; })) as typeof fetch);
+  memory.record('user', 'I grow orchids.');
+  const work = memory.summarize();
+  memory.record('user', 'I prefer short replies.');
+  memory.pause();
+  const restored = new ConversationMemory(disk, (async (_url, init) => {
+    assert.match(JSON.parse(init!.body as string).transcript, /I grow orchids[\s\S]*I prefer short replies/);
+    return Response.json({ patch: { add: ['Grows orchids.', 'Prefers short replies.'], update: [], remove: [] } });
+  }) as typeof fetch);
+  t.after(restored.pause);
+  resolve(Response.json({ patch: { add: ['Stale result.'], update: [], remove: [] } }));
+  await work;
+  await restored.summarize();
+  assert.deepEqual(new ConversationMemory(disk).getSnapshot().memories, ['Grows orchids.', 'Prefers short replies.']);
+  assert.equal(new ConversationMemory(disk).getSnapshot().pending, '');
+});
+
+test('restored pending speech is automatically reviewed after resume', async t => {
+  const disk = storage();
+  const beforeReload = new ConversationMemory(disk);
+  beforeReload.record('user', 'I grow orchids.');
+  beforeReload.pause();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let requests = 0;
+  const restored = new ConversationMemory(disk, (async () => {
+    requests++;
+    return Response.json({ patch: { add: ['Grows orchids.'], update: [], remove: [] } });
+  }) as typeof fetch);
+  t.after(restored.pause);
+  restored.resume();
+  t.mock.timers.tick(29999);
+  assert.equal(requests, 0);
+  t.mock.timers.tick(1);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(requests, 1);
+  assert.equal(restored.getSnapshot().busy, false);
+  assert.deepEqual(new ConversationMemory(disk).getSnapshot().memories, ['Grows orchids.']);
+  assert.equal(new ConversationMemory(disk).getSnapshot().pending, '');
 });
 
 test('duplicate additions are silent; corrections and forgetting affect only targeted entries', async t => {

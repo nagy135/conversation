@@ -2,14 +2,14 @@ import { applyMemoryPatch, validMemories, type MemoryChange } from '../../server
 
 const KEY = 'conversation.memory.v2';
 const LEGACY_KEY = 'conversation.memory.v1';
-interface Saved { memories: string[]; }
+interface Saved { memories: string[]; pending: string; lastReview: { at: string; changes: number } | null; }
 class MemoryRequestError extends Error {}
 
-export interface MemorySnapshot extends Saved { revision: number; changes: MemoryChange[]; pending: string; busy: boolean; error: string | null; }
+export interface MemorySnapshot extends Saved { revision: number; changes: MemoryChange[]; busy: boolean; error: string | null; }
 
-/** Browser-owned volatile transcript buffer; one summary request at a time, independent of voice. */
+/** Durable review queue; one summary request at a time, independent of voice. */
 export class ConversationMemory {
-  private state: MemorySnapshot = { memories: [], changes: [], revision: 0, pending: '', busy: false, error: null };
+  private state: MemorySnapshot = { memories: [], changes: [], revision: 0, pending: '', lastReview: null, busy: false, error: null };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
@@ -19,7 +19,12 @@ export class ConversationMemory {
       const stored = this.storage?.getItem(KEY);
       if (stored) {
         const saved = JSON.parse(stored);
-        if (validMemories(saved?.memories)) this.state = { ...this.state, memories: saved.memories };
+        if (validMemories(saved?.memories)) this.state = {
+          ...this.state, memories: saved.memories,
+          pending: typeof saved.pending === 'string' ? saved.pending : '',
+          lastReview: typeof saved.lastReview?.at === 'string' && Number.isFinite(Date.parse(saved.lastReview.at))
+            && Number.isInteger(saved.lastReview.changes) && saved.lastReview.changes >= 0 ? saved.lastReview : null,
+        };
       } else {
         const legacy = JSON.parse(this.storage?.getItem(LEGACY_KEY) || 'null');
         if (typeof legacy?.summary === 'string' && legacy.summary.trim() && legacy.summary !== 'No lasting details yet.' && validMemories([legacy.summary])) {
@@ -38,14 +43,15 @@ export class ConversationMemory {
     if (save) {
       try {
         if (!this.storage) throw new Error('Storage unavailable');
-        this.storage.setItem(KEY, JSON.stringify({ memories: this.state.memories }));
+        // Commit the patch and consumed queue together so reload cannot lose unreviewed speech.
+        this.storage.setItem(KEY, JSON.stringify({ memories: this.state.memories, pending: this.state.pending, lastReview: this.state.lastReview }));
       } catch { this.state.error = 'Memory cannot be saved in this browser.'; }
     }
     this.listeners.forEach(listener => listener());
   }
   record(role: 'user' | 'assistant', text: string) {
     if (!text) return;
-    this.update({ pending: this.state.pending + `${role}: ${text}\n` });
+    this.update({ pending: this.state.pending + `${role}: ${text}\n` }, true);
     this.schedule();
   }
   resume = () => { this.schedule(); };
@@ -82,12 +88,12 @@ export class ConversationMemory {
       if (this.request !== controller) return;
       const { memories, changes } = applyMemoryPatch(this.state.memories, result.patch);
       const changed = JSON.stringify(memories) !== JSON.stringify(this.state.memories);
-      // No-op still consumes the reviewed buffer, without a write or notification.
-      this.update({ memories, changes, revision: this.state.revision + (changes.length ? 1 : 0), pending: this.state.pending.slice(batch.length) }, changed);
+      // No-op advances the durable queue, but does not create a memory-change toast.
+      this.update({ memories, changes, revision: this.state.revision + (changed ? 1 : 0), pending: this.state.pending.slice(batch.length), lastReview: { at: new Date().toISOString(), changes: changes.length } }, true);
     } catch (error) {
       if (this.request === controller) this.update({ error: error instanceof MemoryRequestError
         ? error.message
-        : 'Could not complete the memory request. Keep this page open to retry.' });
+        : 'Could not complete the memory request. Pending speech will be retried.' });
     } finally {
       if (this.request === controller) {
         this.request = null;
@@ -98,7 +104,7 @@ export class ConversationMemory {
   };
   clear = () => {
     this.pause();
-    this.update({ memories: [], changes: [], revision: 0, pending: '', busy: false, error: null }, true);
+    this.update({ memories: [], changes: [], revision: 0, pending: '', lastReview: null, busy: false, error: null }, true);
   };
   pause = () => {
     if (this.timer) clearTimeout(this.timer);
