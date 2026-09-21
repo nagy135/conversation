@@ -3,13 +3,18 @@ import assert from "node:assert/strict";
 import { LiveClient } from "../src/live/client";
 import { LiveTranscripts } from "../src/live/transcripts";
 import type { ServerEvent } from "../src/live/types";
+import { CONVERSATION_KEY } from '../src/live/conversation';
 
 function browserFixture(
   t: TestContext,
   delayedMicrophone = false,
   autoStart = true,
   savedMemory = '',
+  savedConversation?: string,
 ) {
+  const storage = new Map<string, string>();
+  storage.set('conversation.memory.v1', JSON.stringify({ summary: savedMemory }));
+  if (savedConversation) storage.set(CONVERSATION_KEY, savedConversation);
   const sent: Array<{
     type: string;
     event_id?: string;
@@ -83,7 +88,7 @@ function browserFixture(
     window: { isSecureContext: true },
     navigator: { mediaDevices: { getUserMedia: () => microphone } },
     RTCPeerConnection: Peer,
-    localStorage: { getItem: (key: string) => key === 'conversation.memory.v1' ? JSON.stringify({ summary: savedMemory }) : null, setItem: () => {}, removeItem: () => {} },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -96,10 +101,12 @@ function browserFixture(
     globalThis,
     "fetch",
     async (_input: unknown, init?: RequestInit) => {
+      if (_input === '/api/memory') return Response.json({ patch: { add: [], update: [], remove: [] } });
       requests.push(init!);
       return Response.json({
-        session: { id: "live_test" },
+        session: { id: `live_test_${requests.length}` },
         transport: { type: "webrtc", sdp: "v=0\r\nanswer" },
+        recovery: JSON.parse(init!.body as string).sourceSessionId ? 'fork' : 'new',
       });
     },
   );
@@ -129,7 +136,7 @@ function browserFixture(
       start_ms: start,
       end_ms: end,
     });
-  return { client, audio, track, sent, requests, emit, user, releaseMicrophone };
+  return { client, audio, track, sent, requests, emit, user, releaseMicrophone, storage };
 }
 
 test('startup waits for session readiness and acknowledged greeting, and greets once', async t => {
@@ -158,8 +165,8 @@ test('cancel while awaiting microphone permission releases the late track', asyn
   assert.equal(requests.length, 0);
 });
 
-test('stop silences immediately, waits for close, and allows a fresh session', async t => {
-  const { client, audio, track, sent, emit, user } = browserFixture(t);
+test('stop silences immediately, waits for close, and continues with saved history', async t => {
+  const { client, audio, track, sent, emit, user, requests } = browserFixture(t);
   await client.start(audio);
   user('Hello', 100, 300);
   client.stop();
@@ -174,8 +181,14 @@ test('stop silences immediately, waits for close, and allows a fresh session', a
   assert.equal(client.getSnapshot().transcript[0].text, 'Hello');
   await client.start(audio);
   assert.equal(client.getSnapshot().status, 'connected');
-  assert.equal(client.getSnapshot().transcript.length, 0);
-  assert.doesNotMatch(sent.filter(e => e.type === 'session.instructions.append').at(-1)?.content || '', /user: Hello/);
+  assert.equal(client.getSnapshot().transcript.length, 1);
+  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, [{ role: 'user', text: 'Hello' }]);
+  assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, 'live_test_1');
+  assert.equal(client.getSnapshot().sessionId, 'live_test_2');
+  assert.match(sent.filter(e => e.type === 'session.instructions.append').at(-1)?.content || '', /continuing the conversation/);
+  user('Again', 100, 300);
+  assert.deepEqual(client.getSnapshot().transcript.map(entry => entry.text), ['Hello', 'Again']);
+  assert.equal(new Set(client.getSnapshot().transcript.map(entry => entry.id)).size, 2);
 });
 
 test('user speech before the greeting acknowledgement suppresses the cue', async t => {
@@ -196,7 +209,7 @@ test('late and overlapping transcript fragments keep independent speakers and de
   assert.deepEqual(transcripts.entries.map(e => [e.role, e.text]), [['user', 'Hello world'], ['assistant', 'Hello!']]);
 });
 
-test('web citations survive streamed and completed items, reject unsafe links, and reset on restart', async t => {
+test('web citations survive reconnects, reject unsafe links, and clear for a new conversation', async t => {
   const { client, audio, emit } = browserFixture(t);
   await client.start(audio);
   const citation = { type: 'url_citation', url: 'https://example.com/hours', title: 'Official opening hours' };
@@ -207,7 +220,83 @@ test('web citations survive streamed and completed items, reject unsafe links, a
   emit({ type: 'session.closed' });
   assert.equal(client.getSnapshot().sources.length, 1);
   await client.start(audio);
+  assert.equal(client.getSnapshot().sources.length, 1);
+  client.newConversation();
+  assert.equal(client.getSnapshot().sources.length, 1);
+  client.stop();
+  emit({ type: 'session.closed' });
+  client.newConversation();
   assert.deepEqual(client.getSnapshot().sources, []);
+});
+
+test('reload restores transcript and sources, seeds startup, and greets again once', async t => {
+  const { client, audio, user, emit, storage, sent, requests } = browserFixture(t);
+  await client.start(audio);
+  user('Let us plan a trip.', 100, 300);
+  emit({ type: 'session.output_transcript.delta', delta: 'Where to?', start_ms: 500, end_ms: 900 });
+  emit({ type: 'response.event', event: { type: 'response.output_text.annotation.added', annotation: { type: 'url_citation', url: 'https://example.com', title: 'Travel' } } });
+  const saved = storage.get(CONVERSATION_KEY)!;
+  assert.deepEqual(JSON.parse(saved).transcript.map((entry: { text: string }) => entry.text), ['Let us plan a trip.', 'Where to?']);
+  client.dispose();
+  const restored = new LiveClient();
+  t.after(() => restored.dispose());
+  assert.equal(restored.getSnapshot().status, 'idle');
+  assert.deepEqual(restored.getSnapshot().transcript, client.getSnapshot().transcript);
+  assert.deepEqual(restored.getSnapshot().sources, client.getSnapshot().sources);
+  assert.equal(restored.getSnapshot().sessionId, 'live_test_1');
+  await restored.start(audio);
+  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, [
+    { role: 'user', text: 'Let us plan a trip.' }, { role: 'assistant', text: 'Where to?' },
+  ]);
+  assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, 'live_test_1');
+  assert.equal(JSON.parse(storage.get(CONVERSATION_KEY)!).sessionId, 'live_test_2');
+  emit({ type: 'session.instructions.appended', client_event_id: sent.at(-1)?.event_id });
+  assert.equal(sent.filter(event => event.type === 'session.commentary.append').length, 1);
+  const greeting = sent.findLast(event => event.type === 'session.instructions.append');
+  assert.match(greeting?.content || '', /welcome back/);
+  emit({ type: 'session.instructions.appended', client_event_id: greeting?.event_id });
+  assert.equal(sent.filter(event => event.type === 'session.commentary.append').length, 1);
+  user('Prague', 100, 300);
+  assert.deepEqual(restored.getSnapshot().transcript.map(entry => entry.text), ['Let us plan a trip.', 'Where to?', 'Prague']);
+});
+
+test('new conversation clears saved history but preserves long-term memory', async t => {
+  const { client, audio, user, emit, storage, requests } = browserFixture(t, false, true, 'Prefers Slovak.');
+  await client.start(audio);
+  user('Old topic', 0, 100);
+  client.stop();
+  emit({ type: 'session.closed' });
+  client.newConversation();
+  assert.deepEqual(JSON.parse(storage.get(CONVERSATION_KEY)!).transcript, []);
+  assert.equal(JSON.parse(storage.get(CONVERSATION_KEY)!).sessionId, null);
+  assert.deepEqual(client.memory.getSnapshot().memories, ['Prefers Slovak.']);
+  await client.start(audio);
+  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, []);
+  assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, null);
+});
+
+test('fork without local captions greets on joining, and final captions persist during close', async t => {
+  const { client, audio, emit, sent, user, storage } = browserFixture(t, false, true, '', JSON.stringify({ version: 1, sessionId: 'live_saved', transcript: [], sources: [] }));
+  await client.start(audio);
+  assert.match(sent[0].content || '', /continuing the conversation/);
+  emit({ type: 'session.instructions.appended', client_event_id: sent[0].event_id });
+  assert.equal(sent.filter(event => event.type === 'session.commentary.append').length, 1);
+  client.stop();
+  user('Last words', 0, 100);
+  emit({ type: 'session.closed' });
+  assert.equal(JSON.parse(storage.get(CONVERSATION_KEY)!).transcript[0].text, 'Last words');
+});
+
+test('corrupt browser data and storage write failures do not prevent voice', async t => {
+  const { client, audio, user } = browserFixture(t, false, true, '', '{broken');
+  assert.deepEqual(client.getSnapshot().transcript, []);
+  assert.match(client.getSnapshot().storageError || '', /could not be loaded/);
+  t.mock.method(localStorage, 'setItem', () => { throw new Error('quota'); });
+  await client.start(audio);
+  user('Still talking', 0, 100);
+  assert.equal(client.getSnapshot().status, 'connected');
+  assert.equal(client.getSnapshot().transcript[0].text, 'Still talking');
+  assert.match(client.getSnapshot().storageError || '', /could not be saved/);
 });
 
 

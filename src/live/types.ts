@@ -8,10 +8,12 @@ export interface Transcript {
 }
 export interface Source { url: string; title: string; }
 export interface LiveSnapshot {
+  sessionId: string | null;
   status: ConnectionStatus;
   speaking: boolean;
   thinking: boolean;
   error: string | null;
+  storageError: string | null;
   audioBlocked: boolean;
   transcript: Transcript[];
   sources: Source[];

@@ -1,6 +1,8 @@
 import type { ServerEvent } from "./types";
+import { validSessionId, type HistoryMessage } from '../../server/history.ts';
 
 interface TransportCallbacks {
+  onSession: (sessionId: string, forked: boolean) => void;
   onEvent: (event: ServerEvent) => void;
   onError: (message: string) => void;
   onAudioBlocked: () => void;
@@ -18,13 +20,14 @@ export class LiveTransport {
   private audioTimer: ReturnType<typeof setTimeout> | null = null;
   private lastAudio: { energy: number; duration: number } | null = null;
   private speaking = false;
+  private createdSession: { id: string; forked: boolean } | null = null;
 
   constructor(
     private readonly audio: HTMLAudioElement,
     private readonly callbacks: TransportCallbacks,
   ) {}
 
-  async connect(): Promise<void> {
+  async connect(history: HistoryMessage[] = [], sourceSessionId: string | null = null): Promise<void> {
     this.timer = setTimeout(
       () =>
         this.fail(
@@ -70,7 +73,7 @@ export class LiveTransport {
           ["failed", "disconnected", "closed"].includes(peer.connectionState)
         ) {
           this.fail(
-            "The voice connection was interrupted. Reconnect to start a new conversation.",
+            "The voice connection was interrupted. Press play to continue the conversation.",
           );
         }
       };
@@ -82,6 +85,7 @@ export class LiveTransport {
           const event = JSON.parse(message.data) as ServerEvent;
           if (event.type === "session.started") {
             this.clearTimer();
+            if (this.createdSession) this.callbacks.onSession(this.createdSession.id, this.createdSession.forked);
             void this.observeAudio();
           }
           this.callbacks.onEvent(event);
@@ -92,7 +96,7 @@ export class LiveTransport {
         }
       };
       channel.onclose = () =>
-        this.fail("The voice session ended. You can start a new conversation.");
+        this.fail("The voice session ended. Press play to continue the conversation.");
       channel.onerror = () =>
         this.fail(
           "The voice connection encountered a problem. Please try again.",
@@ -110,9 +114,9 @@ export class LiveTransport {
       const response = await fetch("/api/session", {
         method: "POST",
         headers: {
-          "Content-Type": "application/sdp",
+          "Content-Type": "application/json",
         },
-        body: sdpOffer,
+        body: JSON.stringify({ sdp: sdpOffer, history, sourceSessionId }),
         signal: this.abort.signal,
       });
       if (!response.ok) {
@@ -123,10 +127,11 @@ export class LiveTransport {
       }
       const result = await response.json();
       const sdp = result.transport?.sdp;
-      if (typeof sdp !== "string")
+      if (typeof sdp !== "string" || !validSessionId(result.session?.id))
         throw new Error(
           "The voice service returned an invalid connection answer.",
         );
+      this.createdSession = { id: result.session.id, forked: result.recovery === 'fork' };
       if (!this.closed)
         await peer.setRemoteDescription({ type: "answer", sdp });
     } catch (cause) {

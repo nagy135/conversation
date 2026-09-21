@@ -18,18 +18,29 @@ export default function App() {
     element.setAttribute('playsinline', '');
     audio.current = element;
     client.memory.resume();
+    // Defer past StrictMode's setup/cleanup probe so joining creates only one connection.
+    let mounted = true;
+    queueMicrotask(() => { if (mounted) void client.start(element); });
     const leave = () => client.dispose();
+    const returnToPage = (event: PageTransitionEvent) => { if (event.persisted) void client.start(element); };
     window.addEventListener('pagehide', leave);
-    return () => { window.removeEventListener('pagehide', leave); client.dispose(); audio.current = null; };
+    window.addEventListener('pageshow', returnToPage);
+    return () => {
+      mounted = false;
+      window.removeEventListener('pagehide', leave);
+      window.removeEventListener('pageshow', returnToPage);
+      client.dispose();
+      audio.current = null;
+    };
   }, [client]);
 
   const label = state.status === 'connecting' ? 'Connecting…'
-    : state.status === 'closing' ? 'Finishing…'
+    : state.status === 'closing' ? 'Pausing…'
     : active ? state.speaking ? 'Speaking' : state.thinking ? 'Thinking' : 'Listening'
-    : state.transcript.length ? 'Once more?' : 'Press play. Say hello.';
+    : state.error ? 'Press play to reconnect.' : 'Paused. Press play to resume.';
   const buttonLabel = state.status === 'connecting' ? 'Cancel connection'
-    : state.status === 'closing' ? 'Finishing conversation'
-    : active ? 'Stop conversation' : 'Start conversation';
+    : state.status === 'closing' ? 'Pausing conversation'
+    : active ? 'Pause conversation' : 'Resume conversation';
   return (
     <View style={styles.page}>
       <View style={styles.header}>
@@ -42,7 +53,7 @@ export default function App() {
             testID="play-button"
             accessibilityRole="button"
             accessibilityLabel={buttonLabel}
-            accessibilityHint={active ? 'Ends the voice session and turns off your microphone.' : 'Starts a voice conversation using your microphone.'}
+            accessibilityHint={active ? 'Pauses voice and turns off your microphone. Your conversation is saved.' : 'Resumes your conversation using your microphone.'}
             disabled={state.status === 'closing'}
             onPress={() => {
               if (state.status !== 'idle') client.stop();
@@ -51,7 +62,7 @@ export default function App() {
             style={({ pressed }) => [styles.play, active && styles.playActive, state.speaking && styles.speaking, pressed && styles.pressed]}
           >
             {busy ? <ActivityIndicator size="large" color="#fffaf3" />
-              : active ? <View style={styles.stopIcon} /> : <View style={styles.playIcon} />}
+              : active ? <View style={styles.pauseIcon}><View style={styles.pauseBar} /><View style={styles.pauseBar} /></View> : <View style={styles.playIcon} />}
           </Pressable>
           <View style={styles.status}>
             {active && <View style={[styles.statusDot, state.speaking && styles.statusSpeaking]} />}
@@ -63,6 +74,15 @@ export default function App() {
             </Pressable>
           )}
           {state.error && <Text accessibilityRole="alert" style={styles.error}>{state.error}</Text>}
+          {state.storageError && <Text accessibilityRole="alert" style={styles.error}>{state.storageError}</Text>}
+          {state.status === 'idle' && (state.transcript.length > 0 || state.sources.length > 0 || state.sessionId) && (
+            <Pressable accessibilityRole="button" onPress={() => {
+              client.newConversation();
+              if (audio.current) void client.start(audio.current);
+            }} style={styles.soundButton}>
+              <Text style={styles.soundText}>New conversation</Text>
+            </Pressable>
+          )}
           <View style={styles.transcriptArea}>
             {state.transcript.length === 0 ? (
               <Text style={styles.placeholder}>{active ? 'Your words will appear here.' : 'A little space to talk.'}</Text>
@@ -109,10 +129,10 @@ export default function App() {
         {showMemory && <View style={styles.memoryDetails}>
           <Text style={styles.placeholder}>Distinct memories saved in this browser. Only useful new details are remembered.</Text>
           <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
-          {memory.pending.length > 0 && <Text style={styles.placeholder}>New conversation is buffered temporarily. Closing or reloading this page discards anything not yet reviewed.</Text>}
+          {memory.pending.length > 0 && <Text style={styles.placeholder}>Memory review is pending. The current transcript is saved separately so you can continue after reloading.</Text>}
           {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
-          <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Stop conversation to clear memory'}</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Pause conversation to clear memory'}</Text></Pressable>
         </View>}
       </View>
       <Text style={styles.footer}>Just your voice. An AI listening.</Text>
@@ -133,7 +153,8 @@ const styles = StyleSheet.create({
   speaking: { boxShadow: '0 0 0 12px rgba(56, 76, 64, 0.08), 0 0 0 25px rgba(56, 76, 64, 0.035)' },
   pressed: { transform: [{ scale: 0.96 }] },
   playIcon: { width: 0, height: 0, marginLeft: 10, borderTopWidth: 23, borderBottomWidth: 23, borderLeftWidth: 35, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#fffaf3' },
-  stopIcon: { width: 36, height: 36, borderRadius: 5, backgroundColor: '#fffaf3' },
+  pauseIcon: { flexDirection: 'row', gap: 12 },
+  pauseBar: { width: 12, height: 40, borderRadius: 3, backgroundColor: '#fffaf3' },
   status: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 32, minHeight: 22 },
   statusText: { color: '#50534a', fontSize: 14, letterSpacing: 0.1 },
   statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#748672' },

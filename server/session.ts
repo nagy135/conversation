@@ -1,8 +1,14 @@
-export function createSessionConfig() {
+import type { HistoryMessage } from './history.ts';
+
+export function createSessionConfig(history: HistoryMessage[] = []) {
   const currentTime = new Date().toISOString();
   return {
     model: 'gpt-live-1',
-    store: false,
+    store: true,
+    input: history.map(({ role, text }) => ({
+      type: 'message', role,
+      content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }],
+    })),
     audio: { output: { voice: 'marin' } },
     instructions: `You are a friendly, thoughtful conversational companion. Keep spoken replies natural and concise, usually one to three sentences. Ask one question at a time. For the opening greeting, use the user's preferred language recorded in prior conversation memory, or the language they used previously when no explicit preference is recorded. Default to English only when memory gives no language indication. Follow the language the user speaks, including mid-conversation switches; their current request overrides remembered preferences. Listen without rushing. Stop and listen when interrupted. Use brief, natural acknowledgments without talking over the user. Handle greetings and ordinary conversation yourself.
 
