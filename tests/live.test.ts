@@ -191,3 +191,17 @@ test('late and overlapping transcript fragments keep independent speakers and de
   append('session.input_transcript.delta', 'Hello', 0, 300);
   assert.deepEqual(transcripts.entries.map(e => [e.role, e.text]), [['user', 'Hello world'], ['assistant', 'Hello!']]);
 });
+
+test('web citations survive streamed and completed items, reject unsafe links, and reset on restart', async t => {
+  const { client, audio, emit } = browserFixture(t);
+  await client.start(audio);
+  const citation = { type: 'url_citation', url: 'https://example.com/hours', title: 'Official opening hours' };
+  emit({ type: 'response.event', event: { type: 'response.output_text.annotation.added', annotation: citation } });
+  emit({ type: 'response.event', event: { type: 'response.output_item.done', item: { type: 'message', content: [{ type: 'output_text', annotations: [citation, { type: 'url_citation', url: 'javascript:alert(1)' }, { type: 'url_citation', url: 'https://secret@example.com/' }, { type: 'url_citation', url: 'invalid' }] }] } } });
+  assert.deepEqual(client.getSnapshot().sources, [{ url: citation.url, title: citation.title }]);
+  client.stop();
+  emit({ type: 'session.closed' });
+  assert.equal(client.getSnapshot().sources.length, 1);
+  await client.start(audio);
+  assert.deepEqual(client.getSnapshot().sources, []);
+});

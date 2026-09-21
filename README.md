@@ -25,7 +25,7 @@ PUBLIC_ORIGIN=http://localhost:3000 npm start
 
 ## Voice connection
 
-The Express server validates the origin and SDP offer, then creates a `gpt-live-1` session with the `marin` voice and `gpt-5.6-terra` Responses delegation. The API key stays on the server. Audio travels directly over WebRTC; timestamped events update each speaker's transcript independently. The greeting waits for session readiness and its instruction acknowledgement. Stop silences audio immediately, requests session closure, and releases browser resources.
+The Express server validates the origin and SDP offer, then creates a `gpt-live-1` session with the `marin` voice and `gpt-5.6-terra` Responses delegation. The backend has hosted `web_search` access for current information and public webpages. Opening-hours requests check the exact branch, date, and local timezone, preferring official sources. Citation links appear under the transcript. The API key stays on the server. Audio travels directly over WebRTC; timestamped events update each speaker's transcript independently. The greeting waits for session readiness and its instruction acknowledgement. Stop silences audio immediately, requests session closure, and releases browser resources.
 
 Based on the official [WebRTC guide](https://developers.openai.com/api/docs/guides/voice-webrtc?api=live) and [session lifecycle guide](https://developers.openai.com/api/docs/guides/live-conversations).
 

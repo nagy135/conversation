@@ -33,6 +33,8 @@ test('session proxy validates input, protects secrets, and preserves rate-limit 
   const config = JSON.parse(requests[0].body as string);
   assert.equal(config.session.model, 'gpt-live-1');
   assert.equal(config.session.store, false);
+  assert.deepEqual(config.session.delegation.responses.tools, [{ type: 'web_search' }]);
+  assert.equal(config.session.delegation.responses.tool_choice, 'auto');
   assert.equal(config.transport.sdp, offer);
   fail = true;
   const limited = await send();

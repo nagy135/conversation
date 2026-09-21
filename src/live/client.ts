@@ -1,10 +1,11 @@
 import { LiveTransport } from './transport';
 import { LiveTranscripts } from './transcripts';
+import { collectSources } from './sources';
 import type { LiveSnapshot, ServerEvent } from './types';
 
 const initial = (): LiveSnapshot => ({
   status: 'idle', speaking: false, thinking: false, error: null,
-  audioBlocked: false, transcript: [],
+  audioBlocked: false, transcript: [], sources: [],
 });
 
 export class LiveClient {
@@ -106,6 +107,7 @@ export class LiveClient {
         this.update({ thinking: this.working.size > 0 });
         break;
       case 'response.event':
+        if (event.event) this.update({ sources: collectSources(this.snapshot.sources, event.event) });
         if (event.event && ['response.completed', 'response.failed', 'response.incomplete', 'response.cancelled'].includes(event.event.type)) {
           if (event.delegation_id) this.working.delete(event.delegation_id);
           this.update({ thinking: this.working.size > 0 });

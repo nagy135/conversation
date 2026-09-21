@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentRef } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LiveClient } from './live/client';
 
 export default function App() {
@@ -76,6 +76,16 @@ export default function App() {
                     <Text style={[styles.transcriptText, entry.role === 'user' && styles.userText]}>{entry.text.trim()}</Text>
                   </View>
                 ))}
+                {state.sources.length > 0 && (
+                  <View style={styles.sources}>
+                    <Text style={styles.sourcesLabel}>SOURCES</Text>
+                    {state.sources.map(source => (
+                      <Pressable key={source.url} accessibilityRole="link" accessibilityLabel={source.title} onPress={() => void Linking.openURL(source.url)}>
+                        <Text style={styles.sourceLink}>{source.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
               </ScrollView>
             )}
           </View>
@@ -114,5 +124,8 @@ const styles = StyleSheet.create({
   error: { color: '#9a3c29', fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 18, maxWidth: 360 },
   soundButton: { padding: 12, marginTop: 8 },
   soundText: { fontSize: 13, color: '#384c40', textDecorationLine: 'underline' },
+  sources: { gap: 8, paddingLeft: 42 },
+  sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
+  sourceLink: { color: '#4b5548', fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
   footer: { fontSize: 11, color: '#94968b', letterSpacing: 0.4, textAlign: 'center', paddingBottom: 25 },
 });

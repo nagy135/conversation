@@ -6,6 +6,7 @@ export interface Transcript {
   startMs: number;
   endMs: number;
 }
+export interface Source { url: string; title: string; }
 export interface LiveSnapshot {
   status: ConnectionStatus;
   speaking: boolean;
@@ -13,6 +14,7 @@ export interface LiveSnapshot {
   error: string | null;
   audioBlocked: boolean;
   transcript: Transcript[];
+  sources: Source[];
 }
 export interface ServerEvent {
   type: string;
@@ -23,7 +25,11 @@ export interface ServerEvent {
   end_ms?: number;
   delegation?: { id: string; target: string };
   delegation_id?: string | null;
-  event?: { type: string };
+  event?: {
+    type: string;
+    annotation?: unknown;
+    item?: { type: string; content?: Array<{ type: string; annotations?: unknown[] }> };
+  };
   reason?: string;
   error?: { message?: string; client_event_id?: string };
 }
