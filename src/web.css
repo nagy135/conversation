@@ -1,0 +1,9 @@
+html, body, #root { margin: 0; min-height: 100%; background: #f6f4ef; }
+body { -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+button { -webkit-tap-highlight-color: transparent; }
+[role="button"]:focus-visible { outline: 3px solid #292a25; outline-offset: 8px; }
+::selection { background: #ead2c5; }
+@media (prefers-reduced-motion: no-preference) {
+  [data-testid="play-button"] { transition: transform 180ms ease, background-color 180ms ease, box-shadow 250ms ease; }
+}
