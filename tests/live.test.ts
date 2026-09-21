@@ -8,6 +8,7 @@ function browserFixture(
   t: TestContext,
   delayedMicrophone = false,
   autoStart = true,
+  savedMemory = '',
 ) {
   const sent: Array<{
     type: string;
@@ -82,6 +83,7 @@ function browserFixture(
     window: { isSecureContext: true },
     navigator: { mediaDevices: { getUserMedia: () => microphone } },
     RTCPeerConnection: Peer,
+    localStorage: { getItem: () => JSON.stringify({ summary: savedMemory }), setItem: () => {}, removeItem: () => {} },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -206,4 +208,17 @@ test('web citations survive streamed and completed items, reject unsafe links, a
   assert.equal(client.getSnapshot().sources.length, 1);
   await client.start(audio);
   assert.deepEqual(client.getSnapshot().sources, []);
+});
+
+
+test('fresh session receives remembered language before the greeting cue', async t => {
+  const { client, audio, sent, emit } = browserFixture(t, false, false, 'The user speaks Slovak and prefers short replies.');
+  await client.start(audio);
+  emit({ type: 'session.started' });
+  assert.match(sent[0].content || '', /The user speaks Slovak/);
+  assert.match(sent[0].content || '', /Use their remembered preferred language for your first spoken words/);
+  assert.doesNotMatch(sent[0].content || '', /Greet them briefly in English/);
+  assert.equal(sent.filter(e => e.type === 'session.commentary.append').length, 0);
+  emit({ type: 'session.instructions.appended', client_event_id: sent[0].event_id });
+  assert.equal(sent.at(-1)?.type, 'session.commentary.append');
 });
