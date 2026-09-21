@@ -68,6 +68,9 @@ export class LiveClient {
     this.transport = transport;
     await transport.connect(this.history.map(({ role, text }) => ({ role, text })), this.snapshot.sessionId);
   }
+  clearSources = () => {
+    this.update({ sources: [] });
+  };
   newConversation = () => {
     if (this.snapshot.status !== 'idle') return;
     this.history = [];

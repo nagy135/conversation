@@ -107,7 +107,12 @@ export default function App() {
           </View>
           {state.sources.length > 0 && (
             <View style={styles.sources}>
-              <Text style={styles.sourcesLabel}>SOURCES</Text>
+              <View style={styles.sourcesHeader}>
+                <Text style={styles.sourcesLabel}>SOURCES</Text>
+                <Pressable accessibilityRole="button" onPress={client.clearSources} hitSlop={8}>
+                  <Text style={styles.soundText}>Clear sources</Text>
+                </Pressable>
+              </View>
               <ScrollView
                 style={styles.sourcesScroll}
                 contentContainerStyle={styles.sourcesContent}
@@ -174,6 +179,7 @@ const styles = StyleSheet.create({
   soundButton: { padding: 12, marginTop: 8 },
   soundText: { fontSize: 13, color: '#384c40', textDecorationLine: 'underline' },
   sources: { width: '100%', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e2e5da', gap: 10 },
+  sourcesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
   sourcesScroll: { maxHeight: 112 },
   sourcesContent: { gap: 10, paddingBottom: 4 },
   sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
