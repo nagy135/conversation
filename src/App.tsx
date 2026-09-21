@@ -80,19 +80,26 @@ export default function App() {
                     <Text style={[styles.transcriptText, entry.role === 'user' && styles.userText]}>{entry.text.trim()}</Text>
                   </View>
                 ))}
-                {state.sources.length > 0 && (
-                  <View style={styles.sources}>
-                    <Text style={styles.sourcesLabel}>SOURCES</Text>
-                    {state.sources.map(source => (
-                      <Pressable key={source.url} accessibilityRole="link" accessibilityLabel={source.title} onPress={() => void Linking.openURL(source.url)}>
-                        <Text style={styles.sourceLink}>{source.title}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
               </ScrollView>
             )}
           </View>
+          {state.sources.length > 0 && (
+            <View style={styles.sources}>
+              <Text style={styles.sourcesLabel}>SOURCES</Text>
+              <ScrollView
+                style={styles.sourcesScroll}
+                contentContainerStyle={styles.sourcesContent}
+                accessibilityLabel="Conversation sources"
+                nestedScrollEnabled
+              >
+                {state.sources.map(source => (
+                  <Pressable key={source.url} accessibilityRole="link" accessibilityLabel={source.title} onPress={() => void Linking.openURL(source.url)}>
+                    <Text style={styles.sourceLink}>{source.title}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </View>
       <View style={styles.memoryArea}>
@@ -142,7 +149,9 @@ const styles = StyleSheet.create({
   error: { color: '#9a3c29', fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 18, maxWidth: 360 },
   soundButton: { padding: 12, marginTop: 8 },
   soundText: { fontSize: 13, color: '#384c40', textDecorationLine: 'underline' },
-  sources: { gap: 8, paddingLeft: 42 },
+  sources: { width: '100%', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e2e5da', gap: 10 },
+  sourcesScroll: { maxHeight: 112 },
+  sourcesContent: { gap: 10, paddingBottom: 4 },
   sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
   sourceLink: { color: '#4b5548', fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
   memoryArea: { alignItems: 'center', paddingBottom: 20, gap: 12 },
