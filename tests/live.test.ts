@@ -173,7 +173,7 @@ test('stop silences immediately, waits for close, and allows a fresh session', a
   await client.start(audio);
   assert.equal(client.getSnapshot().status, 'connected');
   assert.equal(client.getSnapshot().transcript.length, 0);
-  assert.match(sent.filter(e => e.type === 'session.instructions.append').at(-1)?.content || '', /user: Hello/);
+  assert.doesNotMatch(sent.filter(e => e.type === 'session.instructions.append').at(-1)?.content || '', /user: Hello/);
 });
 
 test('user speech before the greeting acknowledgement suppresses the cue', async t => {

@@ -1,13 +1,11 @@
-import type { Transcript } from './types';
-
 const KEY = 'conversation.memory.v1';
-interface Pending { id: string; text: string; }
-interface Saved { summary: string; pending: Pending[]; }
-export interface MemorySnapshot extends Saved { busy: boolean; error: string | null; }
+interface Saved { summary: string; }
 
-/** Browser-owned durable queue; one summary request at a time, independent of voice. */
+export interface MemorySnapshot extends Saved { pending: string; busy: boolean; error: string | null; }
+
+/** Browser-owned volatile transcript buffer; one summary request at a time, independent of voice. */
 export class ConversationMemory {
-  private state: MemorySnapshot = { summary: '', pending: [], busy: false, error: null };
+  private state: MemorySnapshot = { summary: '', pending: '', busy: false, error: null };
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private request: AbortController | null = null;
@@ -15,10 +13,11 @@ export class ConversationMemory {
     try {
       this.storage ??= globalThis.localStorage;
       const saved = JSON.parse(this.storage?.getItem(KEY) || 'null');
-      if (saved && typeof saved.summary === 'string' && saved.summary.length <= 8000 && Array.isArray(saved.pending)
-        && saved.pending.every((p: Pending) => p && typeof p.id === 'string' && typeof p.text === 'string')) {
-        this.state = { ...this.state, summary: saved.summary, pending: saved.pending };
+      if (saved && typeof saved.summary === 'string' && saved.summary.length <= 8000) {
+        this.state = { ...this.state, summary: saved.summary };
       }
+      // Migrate v1: discard previously persisted raw conversations, even with an invalid summary.
+      if (saved !== null) this.storage?.setItem(KEY, JSON.stringify({ summary: this.state.summary }));
     } catch { this.state.error = 'Browser memory could not be loaded.'; }
   }
   getSnapshot = () => this.state;
@@ -28,17 +27,14 @@ export class ConversationMemory {
     if (save) {
       try {
         if (!this.storage) throw new Error('Storage unavailable');
-        this.storage.setItem(KEY, JSON.stringify({ summary: this.state.summary, pending: this.state.pending }));
+        this.storage.setItem(KEY, JSON.stringify({ summary: this.state.summary }));
       } catch { this.state.error = 'Memory cannot be saved in this browser.'; }
     }
     this.listeners.forEach(listener => listener());
   }
-  record(id: string, entries: Transcript[]) {
-    const text = entries.map(e => `${e.role}: ${e.text}`).join('\n').slice(-24000);
-    if (!text || this.state.pending.find(p => p.id === id)?.text === text) return;
-    const pending = this.state.pending.filter(p => p.id !== id);
-    pending.push({ id, text });
-    this.update({ pending }, true);
+  record(role: 'user' | 'assistant', text: string) {
+    if (!text) return;
+    this.update({ pending: this.state.pending + `${role}: ${text}\n` });
     this.schedule();
   }
   resume = () => { this.schedule(); };
@@ -48,7 +44,7 @@ export class ConversationMemory {
     }
   }
   context() {
-    return [this.state.summary, ...this.state.pending.map(p => p.text)].filter(Boolean).join('\n\n').slice(-32000);
+    return this.state.summary;
   }
   summarize = async () => {
     if (this.request || !this.state.pending.length) return;
@@ -56,33 +52,33 @@ export class ConversationMemory {
     this.timer = null;
     const controller = new AbortController();
     this.request = controller;
-    // Consume a bounded batch. Changed conversations remain queued for the next pass.
-    const batch = this.state.pending.slice(0, 1);
+    // Snapshot only unsummarized fragments. New arrivals remain in the next batch.
+    const batch = this.state.pending.slice(0, 24000);
     this.update({ busy: true, error: null });
     try {
       const response = await this.requestFetch('/api/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary: this.state.summary, transcript: batch.map(p => p.text).join('\n\n') }),
+        body: JSON.stringify({ summary: this.state.summary, transcript: batch }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90000)]),
       });
       if (!response.ok) throw new Error('Summary failed');
       const result = await response.json();
       if (typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 8000) throw new Error('Invalid summary');
       if (this.request !== controller) return;
-      this.update({ summary: result.summary, pending: this.state.pending.filter(p => !batch.some(b => b.id === p.id && b.text === p.text)) }, true);
+      this.update({ summary: result.summary, pending: this.state.pending.slice(batch.length) }, true);
     } catch {
-      if (this.request === controller) this.update({ error: 'Memory summary paused. Your conversation is queued for retry.' });
+      if (this.request === controller) this.update({ error: 'Memory summary failed. The temporary buffer will retry while this page stays open.' });
     } finally {
       if (this.request === controller) {
         this.request = null;
         this.update({ busy: false });
-        if (!this.state.error) this.schedule();
+        this.schedule();
       }
     }
   };
   clear = () => {
     this.pause();
-    this.update({ summary: '', pending: [], busy: false, error: null }, true);
+    this.update({ summary: '', pending: '', busy: false, error: null }, true);
   };
   pause = () => {
     if (this.timer) clearTimeout(this.timer);

@@ -99,9 +99,9 @@ export default function App() {
           <Text style={styles.soundText}>{memory.busy ? 'Updating memory…' : 'Memory'}{memory.pending.length ? ' · pending' : ''}</Text>
         </Pressable>
         {showMemory && <View style={styles.memoryDetails}>
-          <Text style={styles.placeholder}>Saved in this browser. Summarized in the background with Terra.</Text>
+          <Text style={styles.placeholder}>Only the summary is saved in this browser. Terra updates it in the background.</Text>
           <ScrollView style={{ maxHeight: 160 }}><Text style={styles.transcriptText}>{memory.summary || 'No summary yet.'}</Text></ScrollView>
-          {memory.pending.length > 0 && <Text style={styles.placeholder}>Recent conversation is saved and waiting to be summarized.</Text>}
+          {memory.pending.length > 0 && <Text style={styles.placeholder}>New conversation is buffered temporarily. Closing or reloading this page discards anything not yet summarized.</Text>}
           {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
           <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Stop conversation to clear memory'}</Text></Pressable>

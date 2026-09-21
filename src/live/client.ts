@@ -11,7 +11,6 @@ const initial = (): LiveSnapshot => ({
 
 export class LiveClient {
   readonly memory = new ConversationMemory();
-  private memorySession = '';
   private snapshot = initial();
   private listeners = new Set<() => void>();
   private transport: LiveTransport | null = null;
@@ -32,7 +31,6 @@ export class LiveClient {
   }
   async start(audio: HTMLAudioElement) {
     if (this.transport) return;
-    this.memorySession = crypto.randomUUID();
     this.memory.resume();
     this.transcripts = new LiveTranscripts();
     this.working.clear();
@@ -108,7 +106,7 @@ export class LiveClient {
       case 'session.output_transcript.delta':
         const previous = this.transcripts.entries;
         this.transcripts.append(event);
-        if (previous !== this.transcripts.entries) this.memory.record(this.memorySession, this.transcripts.entries);
+        if (previous !== this.transcripts.entries) this.memory.record(event.type === 'session.input_transcript.delta' ? 'user' : 'assistant', event.delta!);
         this.update({ transcript: this.transcripts.entries });
         break;
       case 'session.delegation.created':
