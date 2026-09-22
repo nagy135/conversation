@@ -161,14 +161,8 @@ export default function App() {
           Memory <span aria-hidden="true">{showMemory ? '⌄' : '⌃'}</span>
         </button>
         {showMemory && <section id="memory-details" aria-label="Memory management" className="memory-panel">
-          <Text style={styles.resetLabel}>{memory.busy ? 'Reviewing memory…' : 'Memory management'}{memory.pending.length ? ' · pending' : ''}</Text>
-          <Text style={styles.placeholder}>Facts, interests, and topics you discuss, saved in this browser.</Text>
+          <Text accessibilityRole="header" style={styles.resetLabel}>Memory</Text>
           <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
-          {memory.pending.length > 0 && <Text style={styles.placeholder}>New speech is saved for memory review, including after reloading.</Text>}
-          {memory.lastReview && <Text style={styles.placeholder}>Last reviewed at {new Date(memory.lastReview.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. {memory.lastReview.changes ? `${memory.lastReview.changes} ${memory.lastReview.changes === 1 ? 'memory change' : 'memory changes'}.` : 'No new memories needed.'}</Text>}
-          {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
-          {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
-          <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Pause conversation to clear memory'}</Text></Pressable>
           <View testID="reset-actions" style={styles.resetActions}>
             <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
               if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
