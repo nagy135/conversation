@@ -88,7 +88,7 @@ function browserFixture(
     window: { isSecureContext: true },
     navigator: { mediaDevices: { getUserMedia: () => microphone } },
     RTCPeerConnection: Peer,
-    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key), clear: () => storage.clear() },
   })) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, key);
     Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -222,10 +222,7 @@ test('web citations survive reconnects, reject unsafe links, and clear for a new
   await client.start(audio);
   assert.equal(client.getSnapshot().sources.length, 1);
   client.newConversation();
-  assert.equal(client.getSnapshot().sources.length, 1);
-  client.stop();
-  emit({ type: 'session.closed' });
-  client.newConversation();
+  assert.equal(client.getSnapshot().status, 'idle');
   assert.deepEqual(client.getSnapshot().sources, []);
 });
 
@@ -267,8 +264,8 @@ test('new conversation clears saved history but preserves long-term memory', asy
   client.stop();
   emit({ type: 'session.closed' });
   client.newConversation();
-  assert.deepEqual(JSON.parse(storage.get(CONVERSATION_KEY)!).transcript, []);
-  assert.equal(JSON.parse(storage.get(CONVERSATION_KEY)!).sessionId, null);
+  assert.equal(storage.has(CONVERSATION_KEY), false);
+  assert.equal(client.memory.getSnapshot().pending, '');
   assert.deepEqual(client.memory.getSnapshot().memories, ['Prefers Slovak.']);
   await client.start(audio);
   assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, []);
@@ -310,4 +307,57 @@ test('fresh session receives remembered language before the greeting cue', async
   assert.equal(sent.filter(e => e.type === 'session.commentary.append').length, 0);
   emit({ type: 'session.instructions.appended', client_event_id: sent[0].event_id });
   assert.equal(sent.at(-1)?.type, 'session.commentary.append');
+});
+
+
+test('full wipe stops voice, empties storage, and ignores a late memory review', async t => {
+  const { client, audio, user, emit, storage, track, requests, sent } = browserFixture(t, false, true, 'Prefers Slovak.');
+  let resolveReview!: (response: Response) => void;
+  const originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', (input: Parameters<typeof fetch>[0], init?: RequestInit) => input === '/api/memory'
+    ? new Promise<Response>(resolve => { resolveReview = resolve; }) : originalFetch(input, init));
+  await client.start(audio);
+  user('Old private topic', 0, 100);
+  const review = client.memory.summarize();
+  storage.set('other-local-setting', 'value');
+  client.clearAll();
+  assert.equal(track.stopped, true);
+  assert.equal(audio.paused, true);
+  assert.equal(client.getSnapshot().status, 'idle');
+  assert.deepEqual(client.getSnapshot().transcript, []);
+  assert.equal(client.getSnapshot().sessionId, null);
+  assert.deepEqual(client.memory.getSnapshot().memories, []);
+  assert.equal(client.memory.getSnapshot().pending, '');
+  assert.equal(storage.size, 0);
+  emit({ type: 'session.input_transcript.delta', delta: 'Late speech', start_ms: 100, end_ms: 200 });
+  resolveReview(Response.json({ patch: { add: ['Old private topic'], update: [], remove: [] } }));
+  await review;
+  assert.equal(storage.size, 0);
+  assert.deepEqual(client.memory.getSnapshot().memories, []);
+  await client.start(audio);
+  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, []);
+  assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, null);
+  assert.doesNotMatch(sent.findLast(event => event.type === 'session.instructions.append')!.content!, /Prefers Slovak/);
+});
+
+test('new conversation during connection releases late microphone and retains only saved memory', async t => {
+  const { client, audio, releaseMicrophone, track, storage, requests } = browserFixture(t, true, true, 'Likes hiking.');
+  client.memory.record('user', 'Discard pending topic');
+  const starting = client.start(audio);
+  client.newConversation();
+  releaseMicrophone();
+  await starting;
+  assert.equal(track.stopped, true);
+  assert.equal(requests.length, 0);
+  assert.equal(client.getSnapshot().status, 'idle');
+  assert.equal(storage.has(CONVERSATION_KEY), false);
+  assert.deepEqual(client.memory.getSnapshot().memories, ['Likes hiking.']);
+  assert.equal(client.memory.getSnapshot().pending, '');
+});
+
+test('failed full wipe reports a storage error', t => {
+  const { client } = browserFixture(t);
+  t.mock.method(localStorage, 'clear', () => { throw new Error('blocked'); });
+  client.clearAll();
+  assert.match(client.getSnapshot().storageError || '', /could not be cleared/);
 });

@@ -30,3 +30,9 @@ button { -webkit-tap-highlight-color: transparent; }
 @keyframes face-blink { 0%, 42%, 46%, 100% { transform: scaleY(1); } 44% { transform: scaleY(.1); } }
 @keyframes face-nod { 0%, 100% { transform: rotate(-1deg); } 50% { transform: rotate(1.2deg) translateY(1px); } }
 @keyframes face-glow { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+@media (max-width: 540px) {
+  [data-testid="app-header"] { padding-top: max(16px, env(safe-area-inset-top)); }
+  [data-testid="reset-actions"] { width: 100%; flex-wrap: nowrap; }
+  [data-testid="reset-actions"] > * { flex: 1; padding-left: 10px; padding-right: 10px; }
+}

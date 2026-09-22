@@ -35,9 +35,9 @@ export class LiveClient {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   };
-  private update(patch: Partial<LiveSnapshot>) {
+  private update(patch: Partial<LiveSnapshot>, save = true) {
     this.snapshot = { ...this.snapshot, ...patch };
-    if (patch.transcript || patch.sources || patch.sessionId !== undefined) {
+    if (save && (patch.transcript || patch.sources || patch.sessionId !== undefined)) {
       this.storage.save({ transcript: this.snapshot.transcript, sources: this.snapshot.sources, sessionId: this.snapshot.sessionId });
       this.snapshot.storageError = this.storage.error;
     }
@@ -72,11 +72,29 @@ export class LiveClient {
     this.update({ sources: [] });
   };
   newConversation = () => {
-    if (this.snapshot.status !== 'idle') return;
-    this.history = [];
-    this.transcripts = new LiveTranscripts();
-    this.update(initial());
+    this.reset(true);
   };
+  clearAll = () => {
+    this.reset(false);
+  };
+  private reset(keepMemory: boolean) {
+    // Detach first so late voice events cannot restore discarded speech.
+    const transport = this.transport;
+    this.transport = null;
+    transport?.send({ type: 'session.close', event_id: `close-${++this.sequence}` });
+    transport?.close();
+    if (this.closeTimer) clearTimeout(this.closeTimer);
+    this.closeTimer = null;
+    this.greeting = null;
+    this.working.clear();
+    this.history = [];
+    this.transcriptOffset = 0;
+    this.continuing = false;
+    this.transcripts = new LiveTranscripts();
+    this.memory.resetConversation(keepMemory);
+    this.storage.clear(!keepMemory);
+    this.update({ ...initial(), storageError: this.storage.error }, false);
+  }
   stop = () => {
     if (this.snapshot.status === 'closing') return;
     if (this.snapshot.status !== 'connected') { this.finish(); return; }

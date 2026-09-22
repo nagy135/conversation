@@ -114,6 +114,10 @@ export class ConversationMemory {
     this.pause();
     this.update({ memories: [], changes: [], revision: 0, pending: '', lastReview: null, reviewPolicyVersion: REVIEW_POLICY_VERSION, busy: false, error: null }, true);
   };
+  resetConversation(keepMemory: boolean) {
+    this.pause();
+    this.update({ memories: keepMemory ? this.state.memories : [], changes: [], revision: 0, pending: '', lastReview: keepMemory ? this.state.lastReview : null, reviewPolicyVersion: REVIEW_POLICY_VERSION, busy: false, error: null }, keepMemory);
+  }
   pause = () => {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;

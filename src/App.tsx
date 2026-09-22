@@ -44,9 +44,23 @@ export default function App() {
     : active ? 'Pause conversation' : 'Resume conversation';
   return (
     <View style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.wordmarkDot} />
-        <Text style={styles.wordmark}>conversation</Text>
+      <View testID="app-header" style={styles.header}>
+        <View style={styles.brand}>
+          <View style={styles.wordmarkDot} />
+          <Text style={styles.wordmark}>conversation</Text>
+        </View>
+        <View testID="reset-actions" style={styles.resetActions}>
+          <Pressable accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
+            <Text style={styles.resetLabel}>New conversation</Text>
+            <Text style={styles.resetHint}>Keep memory</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
+            if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
+          }} style={({ pressed }) => [styles.resetButton, styles.wipeButton, pressed && styles.pressed]}>
+            <Text style={[styles.resetLabel, styles.wipeLabel]}>Wipe everything</Text>
+            <Text style={styles.resetHint}>Conversation + memory</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.main}>
         <View style={styles.stage}>
@@ -77,14 +91,6 @@ export default function App() {
           )}
           {state.error && <Text accessibilityRole="alert" style={styles.error}>{state.error}</Text>}
           {state.storageError && <Text accessibilityRole="alert" style={styles.error}>{state.storageError}</Text>}
-          {state.status === 'idle' && (state.transcript.length > 0 || state.sources.length > 0 || state.sessionId) && (
-            <Pressable accessibilityRole="button" onPress={() => {
-              client.newConversation();
-              if (audio.current) void client.start(audio.current);
-            }} style={styles.soundButton}>
-              <Text style={styles.soundText}>New conversation</Text>
-            </Pressable>
-          )}
           <View style={styles.transcriptArea}>
             {state.transcript.length === 0 ? (
               <Text style={styles.placeholder}>{active ? 'Your words will appear here.' : 'A little space to talk.'}</Text>
@@ -151,7 +157,14 @@ export default function App() {
 
 const styles = StyleSheet.create({
   page: { minHeight: '100vh' as unknown as number, backgroundColor: '#f6f4ef', paddingHorizontal: 28 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingTop: 32 },
+  header: { position: 'sticky' as 'relative', top: 0, zIndex: 5, backgroundColor: '#f6f4ef', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingTop: 20, paddingBottom: 12 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  resetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  resetButton: { minHeight: 52, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: '#d6ddcf', backgroundColor: '#fffdf8', justifyContent: 'center', gap: 3 },
+  resetLabel: { fontSize: 13, fontWeight: '600', color: '#384c40' },
+  resetHint: { fontSize: 11, color: '#73776d' },
+  wipeButton: { borderColor: '#e6ccc3' },
+  wipeLabel: { color: '#9a3c29' },
   wordmarkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#bd533a' },
   wordmark: { fontSize: 16, letterSpacing: -0.5, color: '#383b32', fontWeight: '500' },
   main: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 28 },

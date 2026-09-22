@@ -40,4 +40,15 @@ export class ConversationStorage {
       this.error = 'This conversation could not be saved. Reloading may lose recent speech.';
     }
   }
+
+  clear(all = false) {
+    try {
+      if (!this.storage) throw new Error('Storage unavailable');
+      if (all) this.storage.clear();
+      else this.storage.removeItem(CONVERSATION_KEY);
+      this.error = null;
+    } catch {
+      this.error = 'Browser data could not be cleared. Please try again.';
+    }
+  }
 }
