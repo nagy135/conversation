@@ -226,7 +226,7 @@ test('web citations survive reconnects, reject unsafe links, and clear for a new
   assert.deepEqual(client.getSnapshot().sources, []);
 });
 
-test('reload restores transcript and sources, seeds startup, and greets again once', async t => {
+test('reload restores transcript and sources, seeds startup, and prompts a follow-up question once', async t => {
   const { client, audio, user, emit, storage, sent, requests } = browserFixture(t);
   await client.start(audio);
   user('Let us plan a trip.', 100, 300);
@@ -250,7 +250,9 @@ test('reload restores transcript and sources, seeds startup, and greets again on
   emit({ type: 'session.instructions.appended', client_event_id: sent.at(-1)?.event_id });
   assert.equal(sent.filter(event => event.type === 'session.commentary.append').length, 1);
   const greeting = sent.findLast(event => event.type === 'session.instructions.append');
-  assert.match(greeting?.content || '', /welcome back/);
+  assert.match(greeting?.content || '', /Always open with one concrete, natural follow-up question based on the most recent topic or unresolved point/);
+  assert.match(greeting?.content || '', /Never open with a generic invitation/);
+  assert.match(sent.findLast(event => event.type === 'session.commentary.append')?.content || '', /Begin with your concrete follow-up question now/);
   emit({ type: 'session.instructions.appended', client_event_id: greeting?.event_id });
   assert.equal(sent.filter(event => event.type === 'session.commentary.append').length, 1);
   user('Prague', 100, 300);
