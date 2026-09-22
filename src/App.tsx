@@ -63,12 +63,16 @@ export default function App() {
     : state.status === 'closing' ? 'Pausing conversation'
     : active ? 'Pause conversation' : 'Resume conversation';
   return (
-    <View style={styles.page}>
+    <View testID="app-page" style={styles.page}>
       <View testID="app-header" style={styles.header}>
         <View style={styles.brand}>
           <View style={styles.wordmarkDot} />
           <Text style={styles.wordmark}>conversation</Text>
         </View>
+        <Pressable testID="new-conversation" accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
+          <Text style={styles.resetLabel}>New conversation</Text>
+          <Text style={styles.resetHint}>Keep memory</Text>
+        </Pressable>
       </View>
       <View style={styles.main}>
         <View style={styles.stage}>
@@ -166,10 +170,6 @@ export default function App() {
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
           <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Pause conversation to clear memory'}</Text></Pressable>
           <View testID="reset-actions" style={styles.resetActions}>
-            <Pressable accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
-              <Text style={styles.resetLabel}>New conversation</Text>
-              <Text style={styles.resetHint}>Keep memory</Text>
-            </Pressable>
             <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
               if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
             }} style={({ pressed }) => [styles.resetButton, styles.wipeButton, pressed && styles.pressed]}>

@@ -32,7 +32,9 @@ button { -webkit-tap-highlight-color: transparent; }
 @keyframes face-glow { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
 
 @media (max-width: 540px) {
-  [data-testid="app-header"] { padding-top: max(16px, env(safe-area-inset-top)); }
+  [data-testid="app-page"] { padding-left: 16px; padding-right: 16px; }
+  [data-testid="app-header"] { padding-top: max(16px, env(safe-area-inset-top)); flex-wrap: nowrap; gap: 8px; }
+  [data-testid="new-conversation"] { padding-left: 10px; padding-right: 10px; }
   [data-testid="reset-actions"] { width: 100%; flex-wrap: nowrap; }
   [data-testid="reset-actions"] > * { flex: 1; padding-left: 10px; padding-right: 10px; }
 }
