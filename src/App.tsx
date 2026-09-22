@@ -11,6 +11,26 @@ export default function App() {
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
   const memory = useSyncExternalStore(client.memory.subscribe, client.memory.getSnapshot, client.memory.getSnapshot);
   const [showMemory, setShowMemory] = useState(false);
+  const memoryMenu = useRef<HTMLDivElement | null>(null);
+  const memoryToggle = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!showMemory) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !memoryMenu.current?.contains(event.target)) setShowMemory(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowMemory(false);
+        memoryToggle.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [showMemory]);
   const active = state.status === 'connected';
   const busy = state.status === 'connecting' || state.status === 'closing';
   useEffect(() => {
@@ -48,18 +68,6 @@ export default function App() {
         <View style={styles.brand}>
           <View style={styles.wordmarkDot} />
           <Text style={styles.wordmark}>conversation</Text>
-        </View>
-        <View testID="reset-actions" style={styles.resetActions}>
-          <Pressable accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
-            <Text style={styles.resetLabel}>New conversation</Text>
-            <Text style={styles.resetHint}>Keep memory</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
-            if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
-          }} style={({ pressed }) => [styles.resetButton, styles.wipeButton, pressed && styles.pressed]}>
-            <Text style={[styles.resetLabel, styles.wipeLabel]}>Wipe everything</Text>
-            <Text style={styles.resetHint}>Conversation + memory</Text>
-          </Pressable>
         </View>
       </View>
       <View style={styles.main}>
@@ -135,11 +143,21 @@ export default function App() {
           )}
         </View>
       </View>
-      <View style={styles.memoryArea}>
-        <Pressable accessibilityRole="button" onPress={() => setShowMemory(!showMemory)}>
-          <Text style={styles.soundText}>{memory.busy ? 'Reviewing memory…' : 'Memory'}{memory.pending.length ? ' · pending' : ''}</Text>
-        </Pressable>
-        {showMemory && <View style={styles.memoryDetails}>
+      <div ref={memoryMenu} className="memory-menu" onBlur={event => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setShowMemory(false);
+      }}>
+        <button
+          ref={memoryToggle}
+          type="button"
+          className="memory-toggle"
+          aria-expanded={showMemory}
+          aria-controls="memory-details"
+          onClick={() => setShowMemory(value => !value)}
+        >
+          Memory <span aria-hidden="true">{showMemory ? '⌄' : '⌃'}</span>
+        </button>
+        {showMemory && <section id="memory-details" aria-label="Memory management" className="memory-panel">
+          <Text style={styles.resetLabel}>{memory.busy ? 'Reviewing memory…' : 'Memory management'}{memory.pending.length ? ' · pending' : ''}</Text>
           <Text style={styles.placeholder}>Facts, interests, and topics you discuss, saved in this browser.</Text>
           <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
           {memory.pending.length > 0 && <Text style={styles.placeholder}>New speech is saved for memory review, including after reloading.</Text>}
@@ -147,8 +165,20 @@ export default function App() {
           {memory.error && <Text accessibilityRole="alert" style={styles.error}>{memory.error}</Text>}
           {memory.pending.length > 0 && !memory.busy && <Pressable accessibilityRole="button" onPress={() => void client.memory.summarize()}><Text style={styles.soundText}>Update memory</Text></Pressable>}
           <Pressable accessibilityRole="button" disabled={state.status !== 'idle'} onPress={client.memory.clear}><Text style={styles.soundText}>{state.status === 'idle' ? 'Clear memory' : 'Pause conversation to clear memory'}</Text></Pressable>
-        </View>}
-      </View>
+          <View testID="reset-actions" style={styles.resetActions}>
+            <Pressable accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
+              <Text style={styles.resetLabel}>New conversation</Text>
+              <Text style={styles.resetHint}>Keep memory</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
+              if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
+            }} style={({ pressed }) => [styles.resetButton, styles.wipeButton, pressed && styles.pressed]}>
+              <Text style={[styles.resetLabel, styles.wipeLabel]}>Wipe everything</Text>
+              <Text style={styles.resetHint}>Conversation + memory</Text>
+            </Pressable>
+          </View>
+        </section>}
+      </div>
       <Text style={styles.footer}>Just your voice. An AI listening.</Text>
       <MemoryToast memory={client.memory} />
     </View>
@@ -197,7 +227,5 @@ const styles = StyleSheet.create({
   sourcesContent: { gap: 10, paddingBottom: 4 },
   sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
   sourceLink: { color: '#4b5548', fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
-  memoryArea: { alignItems: 'center', paddingBottom: 20, gap: 12 },
-  memoryDetails: { width: '100%', maxWidth: 480, gap: 14 },
-  footer: { fontSize: 11, color: '#94968b', letterSpacing: 0.4, textAlign: 'center', paddingBottom: 25 },
+  footer: { fontSize: 11, color: '#94968b', letterSpacing: 0.4, textAlign: 'center', paddingBottom: 88 },
 });
