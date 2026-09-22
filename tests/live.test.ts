@@ -221,8 +221,8 @@ test('web citations survive reconnects, reject unsafe links, and clear for a new
   assert.equal(client.getSnapshot().sources.length, 1);
   await client.start(audio);
   assert.equal(client.getSnapshot().sources.length, 1);
-  client.newConversation();
-  assert.equal(client.getSnapshot().status, 'idle');
+  await client.newConversation(audio);
+  assert.equal(client.getSnapshot().status, 'connected');
   assert.deepEqual(client.getSnapshot().sources, []);
 });
 
@@ -259,20 +259,32 @@ test('reload restores transcript and sources, seeds startup, and prompts a follo
   assert.deepEqual(restored.getSnapshot().transcript.map(entry => entry.text), ['Let us plan a trip.', 'Where to?', 'Prague']);
 });
 
-test('new conversation clears saved history but preserves long-term memory', async t => {
-  const { client, audio, user, emit, storage, requests } = browserFixture(t, false, true, 'Prefers Slovak.');
-  await client.start(audio);
-  user('Old topic', 0, 100);
-  client.stop();
-  emit({ type: 'session.closed' });
-  client.newConversation();
-  assert.equal(storage.has(CONVERSATION_KEY), false);
-  assert.equal(client.memory.getSnapshot().pending, '');
-  assert.deepEqual(client.memory.getSnapshot().memories, ['Prefers Slovak.']);
-  await client.start(audio);
-  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, []);
-  assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, null);
-});
+for (const status of ['idle', 'connected', 'closing'] as const) {
+  test(`new conversation starts voice from ${status}, discards history, and keeps memory`, async t => {
+    const { client, audio, user, emit, storage, requests, sent } = browserFixture(t, false, true, 'Prefers Slovak.');
+    await client.start(audio);
+    user('Old topic', 0, 100);
+    if (status !== 'connected') client.stop();
+    if (status === 'idle') emit({ type: 'session.closed' });
+    assert.equal(client.getSnapshot().status, status);
+    const starting = client.newConversation(audio);
+    assert.equal(client.getSnapshot().status, 'connecting');
+    assert.equal(storage.has(CONVERSATION_KEY), false);
+    assert.deepEqual(client.getSnapshot().transcript, []);
+    assert.equal(client.memory.getSnapshot().pending, '');
+    assert.deepEqual(client.memory.getSnapshot().memories, ['Prefers Slovak.']);
+    await starting;
+    assert.equal(client.getSnapshot().status, 'connected');
+    assert.equal(requests.length, 2);
+    assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).history, []);
+    assert.equal(JSON.parse(requests.at(-1)!.body as string).sourceSessionId, null);
+    const greeting = sent.findLast(event => event.type === 'session.instructions.append');
+    assert.match(greeting?.content || '', /Give a brief, natural greeting/);
+    assert.match(greeting?.content || '', /Prefers Slovak/);
+    emit({ type: 'session.instructions.appended', client_event_id: greeting?.event_id });
+    assert.equal(sent.at(-1)?.type, 'session.commentary.append');
+  });
+}
 
 test('fork without local captions greets on joining, and final captions persist during close', async t => {
   const { client, audio, emit, sent, user, storage } = browserFixture(t, false, true, '', JSON.stringify({ version: 1, sessionId: 'live_saved', transcript: [], sources: [] }));
@@ -342,17 +354,25 @@ test('full wipe stops voice, empties storage, and ignores a late memory review',
   assert.doesNotMatch(sent.findLast(event => event.type === 'session.instructions.append')!.content!, /Prefers Slovak/);
 });
 
-test('new conversation during connection releases late microphone and retains only saved memory', async t => {
+test('new conversation starts immediately during connection and releases the old late microphone', async t => {
   const { client, audio, releaseMicrophone, track, storage, requests } = browserFixture(t, true, true, 'Likes hiking.');
   client.memory.record('user', 'Discard pending topic');
   const starting = client.start(audio);
-  client.newConversation();
+  const freshTrack = { ...track, enabled: true, stopped: false };
+  const freshStream = { getTracks: () => [freshTrack], getAudioTracks: () => [freshTrack] };
+  t.mock.method(navigator.mediaDevices, 'getUserMedia', async () => freshStream as unknown as MediaStream);
+  await client.newConversation(audio);
+  assert.equal(client.getSnapshot().status, 'connected');
   releaseMicrophone();
   await starting;
   assert.equal(track.stopped, true);
-  assert.equal(requests.length, 0);
-  assert.equal(client.getSnapshot().status, 'idle');
-  assert.equal(storage.has(CONVERSATION_KEY), false);
+  assert.equal(freshTrack.stopped, false);
+  assert.equal(freshTrack.enabled, true);
+  assert.equal(requests.length, 1);
+  assert.equal(client.getSnapshot().status, 'connected');
+  assert.deepEqual(JSON.parse(storage.get(CONVERSATION_KEY)!).transcript, []);
+  assert.deepEqual(JSON.parse(requests[0].body as string).history, []);
+  assert.equal(JSON.parse(requests[0].body as string).sourceSessionId, null);
   assert.deepEqual(client.memory.getSnapshot().memories, ['Likes hiking.']);
   assert.equal(client.memory.getSnapshot().pending, '');
 });

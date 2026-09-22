@@ -71,8 +71,9 @@ export class LiveClient {
   clearSources = () => {
     this.update({ sources: [] });
   };
-  newConversation = () => {
+  newConversation = async (audio: HTMLAudioElement) => {
     this.reset(true);
+    await this.start(audio);
   };
   clearAll = () => {
     this.reset(false);

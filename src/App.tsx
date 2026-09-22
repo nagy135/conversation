@@ -69,7 +69,7 @@ export default function App() {
           <View style={styles.wordmarkDot} />
           <Text style={styles.wordmark}>conversation</Text>
         </View>
-        <Pressable testID="new-conversation" accessibilityRole="button" accessibilityHint="Clears the conversation and pending speech, keeps saved memories, and pauses voice." onPress={client.newConversation} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
+        <Pressable testID="new-conversation" accessibilityRole="button" accessibilityHint="Starts a new voice conversation immediately, clearing the previous conversation and pending speech while keeping saved memories." onPress={() => { if (audio.current) void client.newConversation(audio.current); }} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
           <Text style={styles.resetLabel}>New conversation</Text>
           <Text style={styles.resetHint}>Keep memory</Text>
         </Pressable>
