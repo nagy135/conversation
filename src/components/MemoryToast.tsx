@@ -56,7 +56,6 @@ export function MemoryToast({ memory }: { memory: ConversationMemory }) {
               <Text accessibilityLiveRegion="polite" style={styles.title}>{title}</Text>
               {!expanded && <Text numberOfLines={1} style={styles.preview}>{notice.changes.map(describe).join(' · ')}</Text>}
             </View>
-            <Text style={styles.chevron}>{expanded ? '⌄' : '⌃'}</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Dismiss memory notification" onPress={dismiss} style={styles.dismiss}>
             <Text style={styles.dismissText}>×</Text>
@@ -83,7 +82,6 @@ const styles = StyleSheet.create({
   heading: { flex: 1, minWidth: 0, gap: 4 },
   title: { fontSize: 13, fontWeight: '600', color: '#384c40' },
   preview: { fontSize: 12, color: '#777e70' },
-  chevron: { color: '#777e70', fontSize: 18 },
   dismiss: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   dismissText: { fontSize: 22, color: '#777e70' },
   details: { paddingHorizontal: 18, paddingBottom: 18, gap: 10 },
