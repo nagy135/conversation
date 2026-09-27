@@ -1,18 +1,36 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentRef } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MemoryToast } from './components/MemoryToast';
-import { TalkingFace } from './components/TalkingFace';
 import { LiveClient } from './live/client';
+
+const TalkingFace = lazy(() => import('./components/TalkingFace').then(module => ({ default: module.TalkingFace })));
+
+function Icon({ name }: { name: 'plus' | 'transcript' | 'pause' | 'play' | 'mic' | 'close' | 'memory' | 'arrow' }) {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {name === 'plus' && <path d="M12 5v14M5 12h14" />}
+    {name === 'transcript' && <><path d="M5 4h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z" /><path d="M7 9h10M7 13h7" /></>}
+    {name === 'pause' && <><path strokeWidth="3" d="M8 6v12M16 6v12" /></>}
+    {name === 'play' && <path d="m9 5 10 7-10 7Z" fill="currentColor" stroke="none" />}
+    {name === 'mic' && <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3M9 22h6" /></>}
+    {name === 'close' && <path d="m6 6 12 12M6 18 18 6" />}
+    {name === 'memory' && <><path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7Z" /><path d="M19 3v4M17 5h4" /></>}
+    {name === 'arrow' && <path d="M7 17 17 7M7 7h10v10" />}
+  </svg>;
+}
 
 export default function App() {
   const [client] = useState(() => new LiveClient());
   const audio = useRef<HTMLAudioElement | null>(null);
-  const scroll = useRef<ComponentRef<typeof ScrollView> | null>(null);
+  const scroll = useRef<HTMLDivElement | null>(null);
+  const liveChat = useRef<HTMLDivElement | null>(null);
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
   const memory = useSyncExternalStore(client.memory.subscribe, client.memory.getSnapshot, client.memory.getSnapshot);
   const [showMemory, setShowMemory] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const memoryMenu = useRef<HTMLDivElement | null>(null);
   const memoryToggle = useRef<HTMLButtonElement | null>(null);
+  const transcriptToggle = useRef<HTMLButtonElement | null>(null);
+  const transcriptPanel = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!showMemory) return;
     const dismissOutside = (event: PointerEvent) => {
@@ -31,8 +49,28 @@ export default function App() {
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [showMemory]);
+
+  useEffect(() => {
+    if (showTranscript) transcriptPanel.current?.focus();
+  }, [showTranscript]);
+
+  useEffect(() => {
+    if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+    if (liveChat.current) liveChat.current.scrollTop = liveChat.current.scrollHeight;
+  }, [state.transcript, showTranscript]);
+
+  useEffect(() => {
+    const chat = liveChat.current;
+    if (!chat) return;
+    const observer = new ResizeObserver(() => { chat.scrollTop = chat.scrollHeight; });
+    observer.observe(chat);
+    if (chat.firstElementChild) observer.observe(chat.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
+
   const active = state.status === 'connected';
   const busy = state.status === 'connecting' || state.status === 'closing';
+  const speaking = active && state.speaking && !state.audioBlocked;
   useEffect(() => {
     const element = document.createElement('audio');
     element.autoplay = true;
@@ -55,171 +93,90 @@ export default function App() {
     };
   }, [client]);
 
-  const label = state.status === 'connecting' ? 'Connecting…'
-    : state.status === 'closing' ? 'Pausing…'
-    : active ? state.speaking ? 'Speaking' : state.thinking ? 'Thinking' : 'Listening'
-    : state.error ? 'Press play to reconnect.' : 'Paused. Press play to resume.';
   const buttonLabel = state.status === 'connecting' ? 'Cancel connection'
     : state.status === 'closing' ? 'Pausing conversation'
     : active ? 'Pause conversation' : 'Resume conversation';
+  const closeTranscript = () => { setShowTranscript(false); transcriptToggle.current?.focus(); };
+
   return (
-    <View testID="app-page" style={styles.page}>
-      <View testID="app-header" style={styles.header}>
-        <View style={styles.brand}>
-          <View style={styles.wordmarkDot} />
-          <Text style={styles.wordmark}>conversation</Text>
-        </View>
-        <Pressable testID="new-conversation" accessibilityRole="button" accessibilityHint="Starts a new voice conversation immediately, clearing the previous conversation and pending speech while keeping saved memories." onPress={() => { if (audio.current) void client.newConversation(audio.current); }} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]}>
-          <Text style={styles.resetLabel}>New conversation</Text>
-          <Text style={styles.resetHint}>Keep memory</Text>
-        </Pressable>
-      </View>
-      <View style={styles.main}>
-        <View style={styles.stage}>
-          <TalkingFace active={active} speaking={active && state.speaking && !state.audioBlocked} />
-          <Pressable
-            testID="play-button"
-            accessibilityRole="button"
-            accessibilityLabel={buttonLabel}
-            accessibilityHint={active ? 'Pauses voice and turns off your microphone. Your conversation is saved.' : 'Resumes your conversation using your microphone.'}
+    <div className={`app-page${showTranscript ? ' transcript-open' : ''}`} data-testid="app-page">
+      <header className="app-header" data-testid="app-header">
+        <a className="brand" href="/" aria-label="Conversation home"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>conversation<span className="brand-period">.</span></a>
+        <nav aria-label="Conversation controls">
+          <button ref={transcriptToggle} type="button" className={`quiet-button transcript-toggle${showTranscript ? ' selected' : ''}`} aria-expanded={showTranscript} aria-controls="conversation-transcript" onClick={() => setShowTranscript(value => !value)}>
+            <Icon name="transcript" /><span>Full history</span>{state.sources.length > 0 && <span className="source-count">{state.sources.length}<span className="sr-only"> sources</span></span>}
+          </button>
+          <span className="header-divider" />
+          <button data-testid="new-conversation" type="button" className="quiet-button" title="Start a new conversation. Your memories stay with you." onClick={() => { if (audio.current) void client.newConversation(audio.current); }}>
+            <Icon name="plus" /><span>New conversation</span>
+          </button>
+        </nav>
+      </header>
+
+      <main className="conversation-stage">
+        <div className="portrait">
+          <Suspense fallback={<div className="scene-loading" aria-hidden="true"><span /></div>}>
+            <TalkingFace active={active} speaking={speaking} thinking={state.thinking} voiceActivity={client.voiceActivity} />
+          </Suspense>
+        </div>
+        <div ref={liveChat} className="live-chat" role="log" aria-label="Recent conversation" aria-live="off" tabIndex={0}>
+          <div>{state.transcript.length ? state.transcript.slice(-4).map(entry => <div key={entry.id} className={`chat-message ${entry.role}`}>
+            <span className="chat-speaker">{entry.role === 'user' ? 'You' : 'Rain'}</span>
+            <p>{entry.text.trim()}</p>
+          </div>) : <p className="chat-placeholder">Your conversation will appear here.</p>}</div>
+        </div>
+        {(state.audioBlocked || state.error || state.storageError) && <div className="notices">
+          {state.audioBlocked && <button type="button" className="sound-button" onClick={() => void client.resumeAudio()}>Tap to enable sound <span aria-hidden="true">↗</span></button>}
+          {state.error && <p role="alert">{state.error}</p>}
+          {state.storageError && <p role="alert">{state.storageError}</p>}
+        </div>}
+        <div className="conversation-dock">
+          <span className={`mic-state${active ? ' on' : ''}`}><Icon name="mic" /><span>Mic {active ? 'on' : 'off'}</span></span>
+          <span className="dock-divider" />
+          <button
+            data-testid="play-button"
+            type="button"
+            className={`play-button${active ? ' active' : ''}`}
+            aria-label={buttonLabel}
             disabled={state.status === 'closing'}
-            onPress={() => {
+            onClick={() => {
               if (state.status !== 'idle') client.stop();
               else if (audio.current) void client.start(audio.current);
             }}
-            style={({ pressed }) => [styles.play, active && styles.playActive, state.speaking && styles.speaking, pressed && styles.pressed]}
           >
-            {busy ? <ActivityIndicator size="large" color="#fffaf3" />
-              : active ? <View style={styles.pauseIcon}><View style={styles.pauseBar} /><View style={styles.pauseBar} /></View> : <View style={styles.playIcon} />}
-          </Pressable>
-          <View style={styles.status}>
-            {active && <View style={[styles.statusDot, state.speaking && styles.statusSpeaking]} />}
-            <Text accessibilityLiveRegion="polite" style={styles.statusText}>{label}</Text>
-          </View>
-          {state.audioBlocked && (
-            <Pressable accessibilityRole="button" onPress={() => void client.resumeAudio()} style={styles.soundButton}>
-              <Text style={styles.soundText}>Tap to enable sound</Text>
-            </Pressable>
-          )}
-          {state.error && <Text accessibilityRole="alert" style={styles.error}>{state.error}</Text>}
-          {state.storageError && <Text accessibilityRole="alert" style={styles.error}>{state.storageError}</Text>}
-          <View style={styles.transcriptArea}>
-            {state.transcript.length === 0 ? (
-              <Text style={styles.placeholder}>{active ? 'Your words will appear here.' : 'A little space to talk.'}</Text>
-            ) : (
-              <ScrollView
-                ref={scroll}
-                style={styles.transcript}
-                contentContainerStyle={styles.transcriptContent}
-                onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
-                accessibilityLabel="Conversation transcript"
-              >
-                {state.transcript.map(entry => (
-                  <View key={entry.id} style={styles.line}>
-                    <Text style={styles.speaker}>{entry.role === 'user' ? 'YOU' : 'AI'}</Text>
-                    <Text style={[styles.transcriptText, entry.role === 'user' && styles.userText]}>{entry.text.trim()}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-          {state.sources.length > 0 && (
-            <View style={styles.sources}>
-              <View style={styles.sourcesHeader}>
-                <Text style={styles.sourcesLabel}>SOURCES</Text>
-                <Pressable accessibilityRole="button" onPress={client.clearSources} hitSlop={8}>
-                  <Text style={styles.soundText}>Clear sources</Text>
-                </Pressable>
-              </View>
-              <ScrollView
-                style={styles.sourcesScroll}
-                contentContainerStyle={styles.sourcesContent}
-                accessibilityLabel="Conversation sources"
-                nestedScrollEnabled
-              >
-                {state.sources.map(source => (
-                  <Pressable key={source.url} accessibilityRole="link" accessibilityLabel={source.title} onPress={() => void Linking.openURL(source.url)}>
-                    <Text style={styles.sourceLink}>{source.title}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
-      </View>
-      <div ref={memoryMenu} className="memory-menu" onBlur={event => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setShowMemory(false);
-      }}>
-        <button
-          ref={memoryToggle}
-          type="button"
-          className="memory-toggle"
-          aria-expanded={showMemory}
-          aria-controls="memory-details"
-          onClick={() => setShowMemory(value => !value)}
-        >
-          Memory <span aria-hidden="true">{showMemory ? '⌄' : '⌃'}</span>
-        </button>
-        {showMemory && <section id="memory-details" aria-label="Memory management" className="memory-panel">
-          <Text accessibilityRole="header" style={styles.resetLabel}>Memory</Text>
-          <ScrollView style={{ maxHeight: 200 }} contentContainerStyle={{ gap: 12 }}>{memory.memories.length ? memory.memories.map((text, index) => <Text key={index} style={styles.transcriptText}>• {text}</Text>) : <Text style={styles.transcriptText}>Nothing remembered yet.</Text>}</ScrollView>
-          <View testID="reset-actions" style={styles.resetActions}>
-            <Pressable accessibilityRole="button" accessibilityHint="Deletes all local storage for this app, including conversation and memory." onPress={() => {
+            {busy ? <span className="status-spinner" aria-hidden="true" /> : <Icon name={active ? 'pause' : 'play'} />}
+            <span>{state.status === 'connecting' ? 'Cancel' : state.status === 'closing' ? 'Pausing…' : active ? 'Pause' : 'Let’s talk'}</span>
+          </button>
+        </div>
+      </main>
+
+      {showTranscript && <aside id="conversation-transcript" ref={transcriptPanel} tabIndex={-1} className="transcript-panel" aria-label="Conversation transcript" onKeyDown={event => { if (event.key === 'Escape') closeTranscript(); }}>
+        <div className="panel-header"><div><span className="eyebrow">OUR CONVERSATION</span><h2>A few words between us.</h2></div><button type="button" className="icon-button" aria-label="Close transcript" onClick={closeTranscript}><Icon name="close" /></button></div>
+        <div className="transcript-scroll" ref={scroll} tabIndex={0} aria-label="Transcript messages">
+          {state.transcript.length ? state.transcript.map(entry => <div key={entry.id} className={`transcript-line ${entry.role}`}><span className="eyebrow">{entry.role === 'user' ? 'YOU' : 'COMPANION'}</span><p>{entry.text.trim()}</p></div>) : <div className="transcript-empty"><Icon name="transcript" /><p>Every conversation<br />starts with a hello.</p><span>Your words will appear here.</span></div>}
+        </div>
+        {state.sources.length > 0 && <section className="sources" aria-label="Conversation sources"><div className="sources-header"><span className="eyebrow">MENTIONED ALONG THE WAY</span><button type="button" onClick={client.clearSources}>Clear sources</button></div><div className="source-list">{state.sources.map(source => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title}<Icon name="arrow" /></a>)}</div></section>}
+        <div className="transcript-footnote">Saved in this browser, so we can pick up where we left off.</div>
+      </aside>}
+
+      <footer className="app-footer">
+        <div ref={memoryMenu} className="memory-menu" onBlur={event => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setShowMemory(false);
+        }}>
+          <button ref={memoryToggle} type="button" className="memory-toggle" aria-expanded={showMemory} aria-controls="memory-details" onClick={() => setShowMemory(value => !value)}>
+            <Icon name="memory" />Memory<span className="memory-count">{memory.memories.length}</span>
+          </button>
+          {showMemory && <section id="memory-details" aria-label="Memory management" className="memory-panel">
+            <div><span className="eyebrow">THE LITTLE THINGS THAT STAY</span><h2>Getting to know you.</h2></div>
+            <div className="memory-list">{memory.memories.length ? memory.memories.map((text, index) => <p key={index}>{text}</p>) : <p>Nothing remembered yet. That comes with conversation.</p>}</div>
+            <div data-testid="reset-actions" className="reset-actions"><button type="button" className="wipe-button" onClick={() => {
               if (window.confirm('Wipe all data saved in this browser for this app, including your conversation and memory? This cannot be undone.')) client.clearAll();
-            }} style={({ pressed }) => [styles.resetButton, styles.wipeButton, pressed && styles.pressed]}>
-              <Text style={[styles.resetLabel, styles.wipeLabel]}>Wipe everything</Text>
-              <Text style={styles.resetHint}>Conversation + memory</Text>
-            </Pressable>
-          </View>
-        </section>}
-      </div>
-      <Text style={styles.footer}>Just your voice. An AI listening.</Text>
+            }}>Wipe everything<span>Conversation + memory</span></button></div>
+          </section>}
+        </div>
+        <a className="avatar-credit" href="/models/credits.html" target="_blank" rel="noopener noreferrer">Rain · Blender Studio</a>
+      </footer>
       <MemoryToast memory={client.memory} />
-    </View>
+    </div>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { minHeight: '100vh' as unknown as number, backgroundColor: '#f6f4ef', paddingHorizontal: 28 },
-  header: { position: 'sticky' as 'relative', top: 0, zIndex: 5, backgroundColor: '#f6f4ef', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingTop: 20, paddingBottom: 12 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  resetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  resetButton: { minHeight: 52, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: '#d6ddcf', backgroundColor: '#fffdf8', justifyContent: 'center', gap: 3 },
-  resetLabel: { fontSize: 13, fontWeight: '600', color: '#384c40' },
-  resetHint: { fontSize: 11, color: '#73776d' },
-  wipeButton: { borderColor: '#e6ccc3' },
-  wipeLabel: { color: '#9a3c29' },
-  wordmarkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#bd533a' },
-  wordmark: { fontSize: 16, letterSpacing: -0.5, color: '#383b32', fontWeight: '500' },
-  main: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 28 },
-  stage: { alignItems: 'center', width: '100%', maxWidth: 480 },
-  play: { width: 68, height: 68, borderRadius: 34, marginTop: 18, backgroundColor: '#bd533a', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(132, 62, 39, 0.12)' },
-  playActive: { backgroundColor: '#384c40' },
-  speaking: { boxShadow: '0 0 0 12px rgba(56, 76, 64, 0.08), 0 0 0 25px rgba(56, 76, 64, 0.035)' },
-  pressed: { transform: [{ scale: 0.96 }] },
-  playIcon: { width: 0, height: 0, marginLeft: 5, borderTopWidth: 11, borderBottomWidth: 11, borderLeftWidth: 17, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#fffaf3' },
-  pauseIcon: { flexDirection: 'row', gap: 7 },
-  pauseBar: { width: 6, height: 22, borderRadius: 2, backgroundColor: '#fffaf3' },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 22, minHeight: 22 },
-  statusText: { color: '#50534a', fontSize: 14, letterSpacing: 0.1 },
-  statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#748672' },
-  statusSpeaking: { backgroundColor: '#bd533a' },
-  transcriptArea: { height: 175, width: '100%', marginTop: 32 },
-  placeholder: { color: '#85877e', textAlign: 'center', fontSize: 13, paddingTop: 8 },
-  transcript: { flex: 1 },
-  transcriptContent: { paddingTop: 8, paddingBottom: 16, gap: 16 },
-  line: { flexDirection: 'row', gap: 15, alignItems: 'flex-start' },
-  speaker: { width: 27, fontSize: 9, letterSpacing: 1, color: '#96988e', paddingTop: 5 },
-  transcriptText: { flex: 1, fontSize: 14, lineHeight: 22, color: '#4b5548' },
-  userText: { color: '#85867d' },
-  error: { color: '#9a3c29', fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 18, maxWidth: 360 },
-  soundButton: { padding: 12, marginTop: 8 },
-  soundText: { fontSize: 13, color: '#384c40', textDecorationLine: 'underline' },
-  sources: { width: '100%', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e2e5da', gap: 10 },
-  sourcesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
-  sourcesScroll: { maxHeight: 112 },
-  sourcesContent: { gap: 10, paddingBottom: 4 },
-  sourcesLabel: { fontSize: 9, letterSpacing: 1, color: '#96988e' },
-  sourceLink: { color: '#4b5548', fontSize: 12, lineHeight: 18, textDecorationLine: 'underline' },
-  footer: { fontSize: 11, color: '#94968b', letterSpacing: 0.4, textAlign: 'center', paddingBottom: 88 },
-});

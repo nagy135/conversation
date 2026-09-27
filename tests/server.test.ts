@@ -138,3 +138,34 @@ test('memory proxy validates requests, uses Terra, and rejects incomplete summar
   incomplete = true;
   assert.equal((await send(valid)).status, 502);
 });
+
+test('voice and memory accept normalized local origins while rejecting other sites and ports', async t => {
+  const server = createApp({ apiKey: '', origin: 'http://127.0.0.1:5174/' }).listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  for (const [path, body] of [
+    ['/api/session', { sdp: offer }],
+    ['/api/memory', { memories: [], transcript: 'user: Hello' }],
+  ] as const) {
+    for (const requestOrigin of ['http://127.0.0.1:5174', 'http://localhost:5174', 'http://[::1]:5174']) {
+      const response = await fetch(url + path, { method: 'POST', headers: { Origin: requestOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      assert.equal(response.status, 503, `${path}: ${requestOrigin} should pass origin validation`);
+    }
+    for (const requestOrigin of ['http://localhost:5173', 'https://localhost:5174', 'https://evil.example', 'http://localhost.evil.example:5174', 'null', '']) {
+      const response = await fetch(url + path, { method: 'POST', headers: { ...(requestOrigin ? { Origin: requestOrigin } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      assert.equal(response.status, 403, `${path}: ${requestOrigin} should be rejected`);
+    }
+  }
+});
+
+test('production origin tolerates a configuration trailing slash and stays restricted to its exact host', async t => {
+  const server = createApp({ apiKey: '', origin: `${origin}/` }).listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/session`;
+  for (const [requestOrigin, status] of [[origin, 503], ['http://localhost:5173', 403], [`${origin}.evil.example`, 403], [`${origin}/`, 403]] as const) {
+    const response = await fetch(url, { method: 'POST', headers: { Origin: requestOrigin, 'Content-Type': 'application/sdp' }, body: offer });
+    assert.equal(response.status, status);
+  }
+});

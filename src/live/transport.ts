@@ -1,5 +1,6 @@
 import type { ServerEvent } from "./types";
 import { validSessionId, type HistoryMessage } from '../../server/history.ts';
+import { RemoteAudioMeter } from './audioMeter';
 
 interface TransportCallbacks {
   onSession: (sessionId: string, forked: boolean) => void;
@@ -7,6 +8,7 @@ interface TransportCallbacks {
   onError: (message: string) => void;
   onAudioBlocked: () => void;
   onSpeaking: (speaking: boolean) => void;
+  onAudioLevel: (level: number) => void;
 }
 
 /** Owns one WebRTC connection and every browser resource it acquires. */
@@ -20,6 +22,8 @@ export class LiveTransport {
   private audioTimer: ReturnType<typeof setTimeout> | null = null;
   private lastAudio: { energy: number; duration: number } | null = null;
   private speaking = false;
+  private observingAudio = false;
+  private readonly audioMeter = new RemoteAudioMeter();
   private createdSession: { id: string; forked: boolean } | null = null;
 
   constructor(
@@ -63,7 +67,9 @@ export class LiveTransport {
       });
       peer.ontrack = ({ streams, track }) => {
         if (this.closed) return;
-        this.audio.srcObject = streams[0] || new MediaStream([track]);
+        const received = streams[0] || new MediaStream([track]);
+        this.audio.srcObject = received;
+        this.audioMeter.attach(received);
         void this.audio.play().catch(() => {
           if (!this.closed) this.callbacks.onAudioBlocked();
         });
@@ -86,7 +92,10 @@ export class LiveTransport {
           if (event.type === "session.started") {
             this.clearTimer();
             if (this.createdSession) this.callbacks.onSession(this.createdSession.id, this.createdSession.forked);
-            void this.observeAudio();
+            if (!this.observingAudio) {
+              this.observingAudio = true;
+              void this.observeAudio();
+            }
           }
           this.callbacks.onEvent(event);
         } catch {
@@ -151,6 +160,7 @@ export class LiveTransport {
   }
 
   async resumeAudio(): Promise<void> {
+    this.audioMeter.resume();
     await this.audio.play();
   }
 
@@ -187,47 +197,55 @@ export class LiveTransport {
     });
   }
 
-  /** GPT-Live has no end-of-spoken-response event; measure received audio instead. */
+  /** Short waveform windows preserve syllables; RTP energy is the browser fallback. */
   private async observeAudio(): Promise<void> {
     if (this.closed || !this.peer) return;
     let speaking = false;
+    let audioLevel = 0;
     try {
-      const stats = await this.peer.getStats();
-      stats.forEach((report) => {
-        if (report.type !== "inbound-rtp" || report.kind !== "audio") return;
-        if (
-          typeof report.totalAudioEnergy !== "number" ||
-          typeof report.totalSamplesDuration !== "number"
-        )
-          return;
-        const sample = {
-          energy: report.totalAudioEnergy,
-          duration: report.totalSamplesDuration,
-        };
-        if (this.lastAudio && sample.duration > this.lastAudio.duration) {
-          const level = Math.sqrt(
-            Math.max(0, sample.energy - this.lastAudio.energy) /
-              (sample.duration - this.lastAudio.duration),
-          );
-          speaking = level > 0.008 && !this.audio.paused;
-        }
-        this.lastAudio = sample;
-      });
+      let level = this.audioMeter.read();
+      if (level === null) {
+        level = 0;
+        const stats = await this.peer.getStats();
+        stats.forEach((report) => {
+          if (report.type !== "inbound-rtp" || report.kind !== "audio") return;
+          if (
+            typeof report.totalAudioEnergy !== "number" ||
+            typeof report.totalSamplesDuration !== "number"
+          )
+            return;
+          const sample = {
+            energy: report.totalAudioEnergy,
+            duration: report.totalSamplesDuration,
+          };
+          if (this.lastAudio && sample.duration > this.lastAudio.duration) {
+            level = Math.sqrt(
+              Math.max(0, sample.energy - this.lastAudio.energy) /
+                (sample.duration - this.lastAudio.duration),
+            );
+          }
+          this.lastAudio = sample;
+        });
+      }
+      speaking = level > 0.008 && !this.audio.paused;
+      audioLevel = !this.audio.paused ? Math.min(1, level * 4) : 0;
     } catch {
       /* Audio still works in browsers without usable energy statistics. */
     }
     if (this.closed) return;
+    this.callbacks.onAudioLevel(audioLevel);
     if (speaking !== this.speaking) {
       this.speaking = speaking;
       this.callbacks.onSpeaking(speaking);
     }
-    this.audioTimer = setTimeout(() => void this.observeAudio(), 150);
+    this.audioTimer = setTimeout(() => void this.observeAudio(), 33);
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
     if (this.audioTimer) clearTimeout(this.audioTimer);
+    this.audioMeter.close();
     this.clearTimer();
     this.abort.abort();
     if (this.channel) {

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createSessionConfig } from './session.ts';
 import { readSessionError } from './session-error.ts';
 import { validHistory, validSessionId } from './history.ts';
+import { acceptsOrigin } from './origin.ts';
 
 export function createApp({
   apiKey = process.env.OPENAI_API_KEY,
@@ -27,7 +28,7 @@ export function createApp({
   let pending = 0;
   app.post('/api/session', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (req.headers.origin !== origin) {
+    if (!acceptsOrigin(req.headers.origin, origin)) {
       res.status(403).json({ error: 'This endpoint only accepts requests from this app.' }); return;
     }
     if (!req.is('application/sdp') && !req.is('application/json')) {

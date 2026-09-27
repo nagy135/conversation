@@ -12,6 +12,8 @@ const initial = (): LiveSnapshot => ({
 });
 
 export class LiveClient {
+  // Read directly by the 3D animation loop; audio samples need no React renders.
+  readonly voiceActivity = { level: 0 };
   readonly memory = new ConversationMemory();
   private readonly storage = new ConversationStorage();
   private snapshot: LiveSnapshot = { ...initial(), ...this.storage.load(), storageError: this.storage.error };
@@ -63,6 +65,9 @@ export class LiveClient {
       onSpeaking: speaking => {
         if (this.transport === transport && this.snapshot.status === 'connected') this.update({ speaking });
       },
+      onAudioLevel: level => {
+        if (this.transport === transport) this.voiceActivity.level = this.snapshot.status === 'connected' ? level : 0;
+      },
       onAudioBlocked: () => { if (this.transport === transport) this.update({ audioBlocked: true }); },
     });
     this.transport = transport;
@@ -79,6 +84,7 @@ export class LiveClient {
     this.reset(false);
   };
   private reset(keepMemory: boolean) {
+    this.voiceActivity.level = 0;
     // Detach first so late voice events cannot restore discarded speech.
     const transport = this.transport;
     this.transport = null;
@@ -97,6 +103,7 @@ export class LiveClient {
     this.update({ ...initial(), storageError: this.storage.error }, false);
   }
   stop = () => {
+    this.voiceActivity.level = 0;
     if (this.snapshot.status === 'closing') return;
     if (this.snapshot.status !== 'connected') { this.finish(); return; }
     this.greeting = null;
@@ -122,6 +129,7 @@ export class LiveClient {
     }
   };
   private finish(error?: string) {
+    this.voiceActivity.level = 0;
     if (this.closeTimer) clearTimeout(this.closeTimer);
     this.closeTimer = null;
     this.greeting = null;

@@ -54,6 +54,12 @@ function browserFixture(
   };
   const emit = (event: ServerEvent) =>
     channel.onmessage?.({ data: JSON.stringify(event) });
+  let audioEnergy = 0;
+  let audioDuration = 0;
+  const receiveAudio = (energy: number, duration: number) => {
+    audioEnergy += energy;
+    audioDuration += duration;
+  };
   class Peer extends EventTarget {
     connectionState = "new";
     iceGatheringState = "complete";
@@ -78,7 +84,10 @@ function browserFixture(
         emit({ type: "session.started" });
     }
     async getStats() {
-      return new Map();
+      return new Map([['audio', {
+        type: 'inbound-rtp', kind: 'audio',
+        totalAudioEnergy: audioEnergy, totalSamplesDuration: audioDuration,
+      }]]);
     }
     close() {
       this.connectionState = "closed";
@@ -136,8 +145,36 @@ function browserFixture(
       start_ms: start,
       end_ms: end,
     });
-  return { client, audio, track, sent, requests, emit, user, releaseMicrophone, storage };
+  return { client, audio, track, sent, requests, emit, user, releaseMicrophone, storage, receiveAudio };
 }
+
+test('avatar audio level follows received speech and resets on silence, paused playback, and stop', async t => {
+  const { client, audio, receiveAudio } = browserFixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await client.start(audio);
+  const sample = async (energy: number) => {
+    receiveAudio(energy, 0.15);
+    t.mock.timers.tick(150);
+    await Promise.resolve();
+  };
+  await sample(0.00006);
+  assert.ok(Math.abs(client.voiceActivity.level - 0.08) < 0.001);
+  assert.equal(client.getSnapshot().speaking, true);
+  await sample(0);
+  assert.equal(client.voiceActivity.level, 0);
+  assert.equal(client.getSnapshot().speaking, false);
+  audio.pause();
+  await sample(0.03);
+  assert.equal(client.voiceActivity.level, 0);
+  assert.equal(client.getSnapshot().speaking, false);
+  await audio.play();
+  await sample(0.03);
+  assert.equal(client.voiceActivity.level, 1);
+  client.stop();
+  assert.equal(client.voiceActivity.level, 0);
+  await sample(0.03);
+  assert.equal(client.voiceActivity.level, 0);
+});
 
 test('startup waits for session readiness and acknowledged greeting, and greets once', async t => {
   const { client, audio, sent, emit } = browserFixture(t, false, false);

@@ -1,5 +1,6 @@
 import { Router, json } from 'express';
 import { applyMemoryPatch, validMemories, memoryPatchSchema } from './memory-data.ts';
+import { acceptsOrigin } from './origin.ts';
 
 export function memoryRouter(apiKey: string | undefined, origin: string, upstreamFetch: typeof fetch) {
   const router = Router();
@@ -7,7 +8,7 @@ export function memoryRouter(apiKey: string | undefined, origin: string, upstrea
   let attempts: number[] = [];
   router.post('/memory', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (req.headers.origin !== origin) { res.status(403).json({ error: 'This endpoint only accepts requests from this app.' }); return; }
+    if (!acceptsOrigin(req.headers.origin, origin)) { res.status(403).json({ error: 'This endpoint only accepts requests from this app.' }); return; }
     if (!req.is('application/json')) { res.status(415).json({ error: 'Expected JSON memory.' }); return; }
     next();
   }, json({ limit: '160kb' }), async (req, res) => {
