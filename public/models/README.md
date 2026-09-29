@@ -1,28 +1,42 @@
-# Rain portrait
+# Avatar library
 
-**Rain Rig (CC) Blender Foundation | studio.blender.org**
+The app defaults to **Blonde** (`Female_Adult_01`). Rain remains available with its original model and animation. See [Rain's source, license, and conversion notes](./RAIN.md).
 
-`rain.glb` is an adaptation of [Blender Studio's Rain v3](https://studio.blender.org/characters/rain/v3/), licensed under **Creative Commons Attribution 4.0 International**. See [CC-BY-4.0.txt](./CC-BY-4.0.txt) and the app's [visible credits page](./credits.html).
+The Rocketbox variants are ready-made humans from the Microsoft Rocketbox avatar library:
 
-- Source archive: https://studio.blender.org/download-source/files/ee/a7/eea73e55dba1cea31c09848df6a794b2-4.zip
-- Source archive SHA-256: `80217f163f6392dc829233d63c2cfb5e1376775bc34101ad14f39631fea70d24`
+| Selector | File | Original character |
+| --- | --- | --- |
+| Cardigan | `rocketbox.glb` | `Female_Adult_02` |
+| Blonde | `rocketbox-01.glb` | `Female_Adult_01` |
+| Short dark hair | `rocketbox-03.glb` | `Female_Adult_03` |
+| Long brown hair | `rocketbox-08.glb` | `Female_Adult_08` |
+
+The model, textures, skeleton, and facial poses are distributed under the [MIT license](./ROCKETBOX-LICENSE.txt). No avatar account or subscription is required.
+
+- Repository: https://github.com/microsoft/Microsoft-Rocketbox
+- Pinned commit: `0943055db6ec570bcef9f2c8b41c9e5467c808f9`
+- Models: `Assets/Avatars/Adults/Female_Adult_XX/Export/Female_Adult_XX_facial.fbx` (XX = 01, 02, 03, 08)
+- Textures: `Assets/Avatars/Adults/Female_Adult_XX/Textures/`
 - Retrieved: 2026-09-27
-- The v3.3 archive contains `Rain v3.3/rain_v3.2.blend` and its textures.
+- Each converted GLB embeds textures and the original skeleton. Models are fetched only when selected.
 
-The original CloudRig controllers, constraints, lattices, and corrective shapes were evaluated in Blender and baked into portable morph targets. The portrait supports jaw movement, left/right blinks, raised brows, and small head turns/nods. The lower teeth and tongue follow the original jaw deformation, while the upper teeth stay fixed to the upper jaw. Head movement also deforms the neck and moves hair, eyes, and mouth parts together.
+The original 15 Oculus visemes (`AA_VI_*`, including silence), ARKit, FACS, and other facial poses are preserved. The mesh already includes the mouth interior. Conversion changes the file format, texture resolution/compression, and material setup; it does not synthesize mouth shapes or bake invented facial animation. The unused FBX test action is omitted.
 
-Modifications: arms relaxed from the source T-pose; ponytail posed downward with its original FK controls; one subdivision level baked; lower body omitted; procedural base colors baked into textures; textures converted to WebP; geometry compressed with Meshopt. The self-contained GLB is about 3.1 MB and is served locally. Blender and its rig scripts are not required at runtime.
+Rocketbox speech uses [Wawa Lipsync](https://github.com/wass08/wawa-lipsync), MIT, with its existing R3F demo's blending. The adapter maps standard viseme names to Rocketbox's original shape names. Classification is an approximate frequency-based estimate, not guaranteed phoneme recognition. WebRTC audio plays immediately through the existing audio element. Silence, pause, and reduced motion reset the mouth. There is no amplitude-driven jaw fallback or custom speech controller. See [integration notes](../../src/vendor/wawa-lipsync/README.md).
 
-## Reproduce
+## Reproduce the model
 
-Install Blender (conversion tested with 5.2.2 LTS), download/extract the official archive with its textures, then run from the repository root:
+For each character, download its pinned facial FBX and `.tga` textures into a separate local directory. The converter accepts any of these characters and preserves the authored poses. The sources use this URL prefix:
+
+`https://raw.githubusercontent.com/microsoft/Microsoft-Rocketbox/0943055db6ec570bcef9f2c8b41c9e5467c808f9/`
+
+From the repository root (Blender 5.2):
 
 ```sh
-blender -b '/path/to/Rain v3.3/rain_v3.2.blend' --disable-autoexec \
-  --python scripts/prepare-rain.py -- /tmp/rain.glb
-npx --yes @gltf-transform/cli@4.5.0 optimize /tmp/rain.glb public/models/rain.glb \
+blender -b -P scripts/prepare-rocketbox.py -- /path/to/source-dir /tmp/rocketbox.glb
+npx --yes @gltf-transform/cli@4.5.0 optimize /tmp/rocketbox.glb public/models/rocketbox.glb \
   --compress meshopt --texture-compress webp --texture-size 1024 \
   --simplify false --flatten false --join false --palette false
 ```
 
-The converter does not execute the downloaded blend file's embedded Python scripts. Speech animation currently follows audio amplitude, not phoneme/viseme timing.
+The Avatar selector defaults to Blonde on every page load. Switching changes only the portrait; voice, transcript, and memory stay in the same session.

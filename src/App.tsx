@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MemoryToast } from './components/MemoryToast';
 import { LiveClient } from './live/client';
+import { avatars, defaultAvatar } from './avatars';
 
 const TalkingFace = lazy(() => import('./components/TalkingFace').then(module => ({ default: module.TalkingFace })));
 
@@ -18,6 +19,7 @@ function Icon({ name }: { name: 'plus' | 'transcript' | 'pause' | 'play' | 'mic'
 }
 
 export default function App() {
+  const [avatar, setAvatar] = useState(defaultAvatar);
   const [client] = useState(() => new LiveClient());
   const audio = useRef<HTMLAudioElement | null>(null);
   const scroll = useRef<HTMLDivElement | null>(null);
@@ -116,12 +118,12 @@ export default function App() {
       <main className="conversation-stage">
         <div className="portrait">
           <Suspense fallback={<div className="scene-loading" aria-hidden="true"><span /></div>}>
-            <TalkingFace active={active} speaking={speaking} thinking={state.thinking} voiceActivity={client.voiceActivity} />
+            <TalkingFace key={avatar.id} avatar={avatar} active={active} speaking={speaking} thinking={state.thinking} voiceActivity={client.voiceActivity} />
           </Suspense>
         </div>
         <div ref={liveChat} className="live-chat" role="log" aria-label="Recent conversation" aria-live="off" tabIndex={0}>
           <div>{state.transcript.length ? state.transcript.slice(-4).map(entry => <div key={entry.id} className={`chat-message ${entry.role}`}>
-            <span className="chat-speaker">{entry.role === 'user' ? 'You' : 'Rain'}</span>
+            <span className="chat-speaker">{entry.role === 'user' ? 'You' : 'Companion'}</span>
             <p>{entry.text.trim()}</p>
           </div>) : <p className="chat-placeholder">Your conversation will appear here.</p>}</div>
         </div>
@@ -174,7 +176,16 @@ export default function App() {
             }}>Wipe everything<span>Conversation + memory</span></button></div>
           </section>}
         </div>
-        <a className="avatar-credit" href="/models/credits.html" target="_blank" rel="noopener noreferrer">Rain · Blender Studio</a>
+        <div className="avatar-picker">
+          <label htmlFor="avatar-choice">Avatar</label>
+          <select id="avatar-choice" value={avatar.id} onChange={event => {
+            const next = avatars.find(option => option.id === event.target.value);
+            if (next) setAvatar(next);
+          }}>
+            {avatars.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select>
+          <a className="avatar-credit" href="/models/credits.html" target="_blank" rel="noopener noreferrer">{avatar.credit} · Credits</a>
+        </div>
       </footer>
       <MemoryToast memory={client.memory} />
     </div>

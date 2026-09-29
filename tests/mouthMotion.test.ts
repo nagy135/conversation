@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MouthMotion } from '../src/components/mouthMotion';
 import { RemoteAudioMeter } from '../src/live/audioMeter';
+import VISEMES from '../src/vendor/wawa-lipsync/visemes';
 
 test('jaw opens and closes between syllables in one continuous speaking turn', () => {
   const mouth = new MouthMotion();
@@ -57,7 +58,7 @@ test('remote meter reads waveform valleys and releases its audio resources', asy
     if (previous) Object.defineProperty(globalThis, 'AudioContext', previous);
     else Reflect.deleteProperty(globalThis, 'AudioContext');
   });
-  const meter = new RemoteAudioMeter();
+  const meter = new RemoteAudioMeter(() => ({ viseme: VISEMES.sil, processAudio() {}, connectSource() {} }));
   meter.attach({} as MediaStream);
   assert.ok(resumed);
   assert.equal(analyser.fftSize, 512);

@@ -1,6 +1,7 @@
 import type { ServerEvent } from "./types";
 import { validSessionId, type HistoryMessage } from '../../server/history.ts';
 import { RemoteAudioMeter } from './audioMeter';
+import type { VisemeWeights } from './visemes';
 
 interface TransportCallbacks {
   onSession: (sessionId: string, forked: boolean) => void;
@@ -9,6 +10,7 @@ interface TransportCallbacks {
   onAudioBlocked: () => void;
   onSpeaking: (speaking: boolean) => void;
   onAudioLevel: (level: number) => void;
+  onVisemes: (weights: VisemeWeights | null) => void;
 }
 
 /** Owns one WebRTC connection and every browser resource it acquires. */
@@ -234,6 +236,8 @@ export class LiveTransport {
     }
     if (this.closed) return;
     this.callbacks.onAudioLevel(audioLevel);
+    const visemes = this.audioMeter.readVisemes();
+    this.callbacks.onVisemes(this.audio.paused ? null : visemes);
     if (speaking !== this.speaking) {
       this.speaking = speaking;
       this.callbacks.onSpeaking(speaking);

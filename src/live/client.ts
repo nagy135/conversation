@@ -5,6 +5,7 @@ import { collectSources } from './sources';
 import { ConversationStorage } from './conversation';
 import { recentHistory } from '../../server/history.ts';
 import type { LiveSnapshot, ServerEvent, Transcript } from './types';
+import type { VoiceActivity } from './visemes';
 
 const initial = (): LiveSnapshot => ({
   status: 'idle', speaking: false, thinking: false, error: null, storageError: null,
@@ -13,7 +14,7 @@ const initial = (): LiveSnapshot => ({
 
 export class LiveClient {
   // Read directly by the 3D animation loop; audio samples need no React renders.
-  readonly voiceActivity = { level: 0 };
+  readonly voiceActivity: VoiceActivity = { level: 0, visemes: null };
   readonly memory = new ConversationMemory();
   private readonly storage = new ConversationStorage();
   private snapshot: LiveSnapshot = { ...initial(), ...this.storage.load(), storageError: this.storage.error };
@@ -68,6 +69,9 @@ export class LiveClient {
       onAudioLevel: level => {
         if (this.transport === transport) this.voiceActivity.level = this.snapshot.status === 'connected' ? level : 0;
       },
+      onVisemes: weights => {
+        if (this.transport === transport) this.voiceActivity.visemes = this.snapshot.status === 'connected' ? weights : null;
+      },
       onAudioBlocked: () => { if (this.transport === transport) this.update({ audioBlocked: true }); },
     });
     this.transport = transport;
@@ -85,6 +89,7 @@ export class LiveClient {
   };
   private reset(keepMemory: boolean) {
     this.voiceActivity.level = 0;
+    this.voiceActivity.visemes = null;
     // Detach first so late voice events cannot restore discarded speech.
     const transport = this.transport;
     this.transport = null;
@@ -104,6 +109,7 @@ export class LiveClient {
   }
   stop = () => {
     this.voiceActivity.level = 0;
+    this.voiceActivity.visemes = null;
     if (this.snapshot.status === 'closing') return;
     if (this.snapshot.status !== 'connected') { this.finish(); return; }
     this.greeting = null;
@@ -130,6 +136,7 @@ export class LiveClient {
   };
   private finish(error?: string) {
     this.voiceActivity.level = 0;
+    this.voiceActivity.visemes = null;
     if (this.closeTimer) clearTimeout(this.closeTimer);
     this.closeTimer = null;
     this.greeting = null;

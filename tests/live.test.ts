@@ -4,6 +4,7 @@ import { LiveClient } from "../src/live/client";
 import { LiveTranscripts } from "../src/live/transcripts";
 import type { ServerEvent } from "../src/live/types";
 import { CONVERSATION_KEY } from '../src/live/conversation';
+import { RemoteAudioMeter } from '../src/live/audioMeter';
 
 function browserFixture(
   t: TestContext,
@@ -150,6 +151,7 @@ function browserFixture(
 
 test('avatar audio level follows received speech and resets on silence, paused playback, and stop', async t => {
   const { client, audio, receiveAudio } = browserFixture(t);
+  t.mock.method(RemoteAudioMeter.prototype, 'readVisemes', () => ({ viseme_O: 0.6 }));
   t.mock.timers.enable({ apis: ['setTimeout'] });
   await client.start(audio);
   const sample = async (energy: number) => {
@@ -160,20 +162,24 @@ test('avatar audio level follows received speech and resets on silence, paused p
   await sample(0.00006);
   assert.ok(Math.abs(client.voiceActivity.level - 0.08) < 0.001);
   assert.equal(client.getSnapshot().speaking, true);
+  assert.deepEqual(client.voiceActivity.visemes, { viseme_O: 0.6 });
   await sample(0);
   assert.equal(client.voiceActivity.level, 0);
   assert.equal(client.getSnapshot().speaking, false);
   audio.pause();
   await sample(0.03);
   assert.equal(client.voiceActivity.level, 0);
+  assert.equal(client.voiceActivity.visemes, null);
   assert.equal(client.getSnapshot().speaking, false);
   await audio.play();
   await sample(0.03);
   assert.equal(client.voiceActivity.level, 1);
   client.stop();
   assert.equal(client.voiceActivity.level, 0);
+  assert.equal(client.voiceActivity.visemes, null);
   await sample(0.03);
   assert.equal(client.voiceActivity.level, 0);
+  assert.equal(client.voiceActivity.visemes, null);
 });
 
 test('startup waits for session readiness and acknowledged greeting, and greets once', async t => {

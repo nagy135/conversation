@@ -8,7 +8,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; cursor: pointer; }
 button:disabled { cursor: wait; opacity: .65; }
 button, a { touch-action: manipulation; }
-button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid #a24d34; outline-offset: 5px; }
+button:focus-visible, a:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid #a24d34; outline-offset: 5px; }
 ::selection { background: #e6c9b5; }
 button { color: inherit; }
 .app-page { min-height: 100svh; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 41%, #fdfcf7 0, #f6f4ef 65%); }
@@ -28,7 +28,7 @@ button { color: inherit; }
 .portrait { width: min(640px, 94vw); height: clamp(260px, calc(100svh - 440px), 480px); position: relative; flex-shrink: 0; }
 .live-chat { width: min(560px, 100%); min-height: 64px; max-height: 176px; overflow-y: auto; overscroll-behavior: contain; margin-top: 20px; padding: 0 12px; scrollbar-width: thin; scrollbar-color: #d6d9cd transparent; }
 .chat-message { display: flex; align-items: baseline; gap: 16px; padding: 10px 0; }
-.chat-speaker { width: 34px; flex-shrink: 0; font-size: 11px; font-weight: 600; color: #a45d44; }
+.chat-speaker { width: 64px; flex-shrink: 0; font-size: 11px; font-weight: 600; color: #a45d44; }
 .chat-message p { margin: 0; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .chat-message.user { color: #78806f; }
 .chat-message.user .chat-speaker { color: #78806f; }
@@ -119,3 +119,11 @@ h2 { font-family: 'Manrope', sans-serif; font-size: 19px; font-weight: 500; lett
 
 .avatar-credit { color: var(--muted, #718079); font-size: 11px; text-decoration: none; }
 .avatar-credit:hover { text-decoration: underline; }
+
+.avatar-picker { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 170px); align-items: center; gap: 5px 10px; }
+.avatar-picker label { color: #718079; font-size: 12px; }
+.avatar-picker select { width: 100%; min-height: 44px; padding: 7px 9px; border: 1px solid #dcded3; border-radius: 9px; background: #fbfaf6; color: #354338; font: inherit; font-size: 12px; cursor: pointer; }
+.avatar-picker .avatar-credit { grid-column: 2; text-align: right; font-size: 10px; }
+@media (max-width: 600px) {
+  .avatar-picker { grid-template-columns: auto minmax(0, 145px); gap: 4px 7px; }
+}

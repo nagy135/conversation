@@ -1,44 +1,58 @@
 import { Component, Suspense, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
-import { MathUtils, Mesh } from 'three';
+import { Euler, MathUtils, Mesh, Quaternion, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
-import { MouthMotion } from './mouthMotion';
+import { RainFace } from './RainFace';
+import { defaultAvatar, type Avatar } from '../avatars';
+import { rocketboxShapes, speechShapes, vowelShapes, type VoiceActivity } from '../live/visemes';
 
 interface TalkingFaceProps {
+  avatar?: Avatar;
   speaking: boolean;
   active: boolean;
   thinking: boolean;
-  voiceActivity: { level: number };
+  voiceActivity: VoiceActivity;
 }
 
-const modelUrl = '/models/rain.glb?v=relaxed-hair';
-const expressions = ['jawOpen', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp', 'headLeft', 'headRight', 'headUp', 'headDown'] as const;
+const expressions = [...speechShapes, 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp'] as const;
 type Expression = typeof expressions[number];
+const rigShapes: Record<Expression, string> = {
+  ...rocketboxShapes,
+  eyeBlinkLeft: 'AK_09_EyeBlinkLeft', eyeBlinkRight: 'AK_10_EyeBlinkRight',
+  browInnerUp: 'AK_03_BrowInnerUp',
+};
 type Orientation = { x: number; y: number; z: number };
 const front: Orientation = { x: 0, y: 0, z: 0 };
 const limitAngle = (angle: number) => MathUtils.clamp(angle, -45, 45);
 
-/** Blender Studio Rain: facial shapes baked from her original CloudRig controls. */
-function Face({ active, speaking, thinking, voiceActivity, reducedMotion, manuallyPosed }: TalkingFaceProps & { reducedMotion: boolean; manuallyPosed: boolean }) {
+/** Microsoft Rocketbox: use the facial poses already authored in the source rig. */
+function RocketboxFace({ modelUrl, active, speaking, thinking, voiceActivity, reducedMotion, manuallyPosed }: TalkingFaceProps & { modelUrl: string; reducedMotion: boolean; manuallyPosed: boolean }) {
   const gltf = useLoader(GLTFLoader, modelUrl, loader => loader.setMeshoptDecoder(MeshoptDecoder));
   const rig = useMemo(() => {
     // Each mounted portrait owns its morph weights; loader geometry is cached.
     const scene = clone(gltf.scene);
+    scene.updateMatrixWorld(true);
+    const head = scene.getObjectByName('Bip01_Head');
+    const rest = head?.quaternion.clone();
+    if (head) {
+      const position = head.getWorldPosition(new Vector3());
+      scene.position.x -= position.x;
+      scene.position.y += 1.43 - position.y;
+    }
     const bindings: { mesh: Mesh; index: number; expression: Expression }[] = [];
     scene.traverse(object => {
       if (!(object instanceof Mesh) || !object.morphTargetDictionary || !object.morphTargetInfluences) return;
       object.morphTargetInfluences.fill(0);
       for (const expression of expressions) {
-        const index = object.morphTargetDictionary[expression];
+        const index = object.morphTargetDictionary[rigShapes[expression]];
         if (index !== undefined) bindings.push({ mesh: object, index, expression });
       }
     });
-    return { scene, bindings };
+    return { scene, bindings, head, rest, turn: new Quaternion(), angles: new Euler() };
   }, [gltf]);
   const time = useRef(0);
-  const mouth = useRef(new MouthMotion());
 
   useFrame(({ pointer }, delta) => {
     const step = Math.min(delta, 0.05);
@@ -47,25 +61,28 @@ function Face({ active, speaking, thinking, voiceActivity, reducedMotion, manual
     const moving = active && !reducedMotion;
     const blinkPhase = t % 5.2;
     const blink = moving && blinkPhase > 4.94 ? Math.sin((blinkPhase - 4.94) / 0.26 * Math.PI) : 0;
-    // Follow the waveform independently of the coarser speaking status.
-    const jaw = mouth.current.update(voiceActivity.level, step, moving);
-    const yaw = moving && !manuallyPosed ? pointer.x * 0.32 + Math.sin(t * 0.55) * 0.12 : 0;
-    const pitch = moving && !manuallyPosed ? pointer.y * 0.25 + (speaking ? Math.sin(t * 2.9) * 0.10 : 0) : 0;
-    const targets: Record<Expression, number> = {
-      jawOpen: jaw,
-      eyeBlinkLeft: blink,
-      eyeBlinkRight: blink,
-      browInnerUp: moving && thinking ? 0.3 : 0.04,
-      headLeft: Math.max(0, yaw),
-      headRight: Math.max(0, -yaw),
-      headUp: Math.max(0, pitch),
-      headDown: Math.max(0, -pitch),
-    };
+    const speech = voiceActivity.visemes ?? {};
+    const selected = speechShapes.find(shape => speech[shape] === 1);
+    const vowel = selected !== undefined && vowelShapes.includes(selected);
+    const yaw = moving && !manuallyPosed ? pointer.x * 0.12 + Math.sin(t * 0.55) * 0.025 : 0;
+    const pitch = moving && !manuallyPosed ? -pointer.y * 0.07 + (speaking ? Math.sin(t * 2.9) * 0.012 : 0) : 0;
+    if (rig.head && rig.rest) {
+      rig.turn.setFromEuler(rig.angles.set(pitch, yaw, 0));
+      rig.head.quaternion.copy(rig.rest).multiply(rig.turn);
+    }
     for (const { mesh, index, expression } of rig.bindings) {
       const weights = mesh.morphTargetInfluences!;
-      // Reset immediately on pause/reduced motion, including an interrupted utterance.
-      const speed = expression.startsWith('eyeBlink') ? 35 : expression.startsWith('head') ? 4 : 20;
-      weights[index] = !moving || expression === 'jawOpen' || (manuallyPosed && expression.startsWith('head')) ? targets[expression] : MathUtils.damp(weights[index], targets[expression], speed, step);
+      if (!moving) { weights[index] = 0; continue; }
+      if (expression.startsWith('viseme_')) {
+        // Wawa's R3F demo blending, applied to Rocketbox's existing poses.
+        // Convert the demo's per-frame lerp to the same speed at any frame rate.
+        const selectedPose = expression === selected;
+        const speed = selectedPose ? (vowel ? 0.2 : 0.4) : (vowel ? 0.1 : 0.2);
+        weights[index] = MathUtils.lerp(weights[index], selectedPose ? 1 : 0, 1 - Math.pow(1 - speed, step * 60));
+      } else {
+        const target = expression === 'browInnerUp' ? (thinking ? 0.18 : 0) : blink;
+        weights[index] = MathUtils.damp(weights[index], target, 35, step);
+      }
     }
   });
 
@@ -83,6 +100,8 @@ class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean
 }
 
 export function TalkingFace(props: TalkingFaceProps) {
+  const avatar = props.avatar ?? defaultAvatar;
+  const isRain = avatar.kind === 'rain';
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [contextLost, setContextLost] = useState(false);
   const [orientation, setOrientation] = useState<Orientation>(front);
@@ -121,7 +140,7 @@ export function TalkingFace(props: TalkingFaceProps) {
       <div
         className={`avatar-rotation-surface${dragging ? ' is-dragging' : ''}`}
         role="group"
-        aria-label="Rotate Rain"
+        aria-label="Rotate companion"
         aria-describedby={instructionsId}
         tabIndex={0}
         onPointerDown={event => {
@@ -166,7 +185,7 @@ export function TalkingFace(props: TalkingFaceProps) {
             {contextLost ? <FaceFallback /> : <Canvas
               aria-hidden="true"
               className="avatar-canvas"
-              camera={{ position: [0, 1.43, 1.12], rotation: [0, 0, 0], fov: 30, near: 0.01, far: 10 }}
+              camera={{ position: [0, 1.43, isRain ? 1.12 : 1], rotation: [0, 0, 0], fov: 30, near: 0.01, far: 10 }}
               dpr={[1, 1.75]}
               frameloop={reducedMotion ? 'demand' : 'always'}
               gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }}
@@ -175,21 +194,23 @@ export function TalkingFace(props: TalkingFaceProps) {
                 gl.domElement.addEventListener('webglcontextlost', () => setContextLost(true), { once: true });
               }}
             >
-              <ambientLight intensity={0.8} />
-              <hemisphereLight args={['#fff7ed', '#87917d', 1.25]} />
-              <directionalLight position={[-2, 3, 4]} intensity={2.3} color="#fff4e5" />
-              <directionalLight position={[3, 2, 2]} intensity={0.8} color="#e3ecff" />
-              <directionalLight position={[1, 3, -2]} intensity={2} color="#fff7e9" />
+              <ambientLight intensity={isRain ? 0.8 : 0.45} />
+              <hemisphereLight args={['#fff7ed', '#87917d', isRain ? 1.25 : 1]} />
+              <directionalLight position={[-2, 3, 4]} intensity={isRain ? 2.3 : 1.6} color="#fff4e5" />
+              <directionalLight position={[3, 2, 2]} intensity={isRain ? 0.8 : 0.6} color="#e3ecff" />
+              <directionalLight position={[1, 3, -2]} intensity={isRain ? 2 : 1.5} color="#fff7e9" />
               <group name="PortraitRotation" position={[0, 1.43, 0]} rotation={[orientation.x * Math.PI / 180, orientation.y * Math.PI / 180, orientation.z * Math.PI / 180]}>
                 <group position={[0, -1.43, 0]}>
-                  <Face {...props} reducedMotion={reducedMotion} manuallyPosed={manuallyPosed || dragging} />
+                  {isRain
+                    ? <RainFace {...props} reducedMotion={reducedMotion} manuallyPosed={manuallyPosed || dragging} />
+                    : <RocketboxFace {...props} modelUrl={avatar.modelUrl} reducedMotion={reducedMotion} manuallyPosed={manuallyPosed || dragging} />}
                 </group>
               </group>
             </Canvas>}
           </Suspense>
         </SceneBoundary>
       </div>
-      <p id={instructionsId} className="sr-only">Drag or use arrow keys to rotate up to 45 degrees in each direction. Shift-drag or Shift with left and right arrows tilts Rain. Release to return to the front view. Double-click or press Home to reset.</p>
+      <p id={instructionsId} className="sr-only">Drag or use arrow keys to rotate up to 45 degrees in each direction. Shift-drag or Shift with left and right arrows tilts the companion. Release to return to the front view. Double-click or press Home to reset.</p>
 
     </div>
   );
